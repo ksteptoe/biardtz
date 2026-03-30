@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=80", "wheel", "setuptools-scm[toml]>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biardz"
+dynamic = ["version"]
+description = "Project scaffolded with PyScaffold Clickstart."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Your Name", email = "you@example.com" }]
+
+# Runtime-only deps
+dependencies = [
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+# Dev extras: tests, coverage, linting, releases
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "pytest-xdist>=3.6",
+    "pytest-timeout>=2.3",
+    "ruff>=0.6",
+    "pre-commit>=3.7",
+    "build>=1.2",
+    "twine>=5",
+]
+
+[project.urls]
+Homepage = "https://example.com/biardz"
+Repository = "https://github.com/example/biardz"
+
+[project.scripts]
+# For Clickstart-style CLIs; adapt or remove if the project has no CLI
+biardz = "biardz.cli:cli"
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "dirty-tag"
+fallback_version = "0.0.0"
+write_to = "src/biardz/_version.py"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --disable-warnings"
+testpaths = ["tests"]
+markers = [
+  "integration: filesystem/external-tool tests"
+]
+
+[tool.coverage.run]
+branch = true
+source = ["biardz"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+
