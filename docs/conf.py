@@ -2,8 +2,8 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
-import sys
 import shutil
+import sys
 
 # -- Path setup --------------------------------------------------------------
 
@@ -27,6 +27,7 @@ except FileNotFoundError:
 
 try:
     import sphinx
+
     cmd_line = f"sphinx-apidoc --implicit-namespaces -f -o {output_dir} {module_dir}"
     args = cmd_line.split(" ")
     if tuple(sphinx.__version__.split(".")) >= ("1", "7"):
@@ -106,9 +107,7 @@ htmlhelp_basename = "biardtz-doc"
 
 latex_elements = {}
 
-latex_documents = [
-    ("index", "user_guide.tex", "biardtz Documentation", "Kevin Steptoe", "manual")
-]
+latex_documents = [("index", "user_guide.tex", "biardtz Documentation", "Kevin Steptoe", "manual")]
 
 # -- External mapping --------------------------------------------------------
 

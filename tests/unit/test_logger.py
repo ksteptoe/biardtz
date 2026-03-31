@@ -1,7 +1,6 @@
 """Tests for biardtz.logger using real aiosqlite."""
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
@@ -39,9 +38,7 @@ class TestInitDb:
     async def _run_check_table(logger):
         await logger.init_db()
         try:
-            cursor = await logger._db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='detections'"
-            )
+            cursor = await logger._db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='detections'")
             row = await cursor.fetchone()
             assert row is not None
             assert row[0] == "detections"
@@ -74,7 +71,9 @@ class TestLog:
             det = Detection(common_name="Robin", sci_name="Erithacus rubecula", confidence=0.85)
             await logger.log(det)
 
-            cursor = await logger._db.execute("SELECT common_name, sci_name, confidence, latitude, longitude FROM detections")
+            cursor = await logger._db.execute(
+                "SELECT common_name, sci_name, confidence, latitude, longitude" " FROM detections"
+            )
             row = await cursor.fetchone()
             assert row is not None
             assert row[0] == "Robin"

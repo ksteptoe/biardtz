@@ -69,7 +69,6 @@ class TestConfigBirdnetPath:
     def test_default_birdnet_path_is_sibling_of_repo_root(self):
         cfg = Config()
         # Should be parents[3] of config.py / "BirdNET-Analyzer"
-        expected = Path(__file__).resolve().parents[3] / "src" / "biardtz" / "config.py"
         # Just verify it ends with BirdNET-Analyzer and is a Path
         assert cfg.birdnet_path.name == "BirdNET-Analyzer"
         assert isinstance(cfg.birdnet_path, Path)

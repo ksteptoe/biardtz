@@ -13,6 +13,7 @@ from pathlib import Path
 import click
 
 from biardtz import __version__
+
 from .config import Config
 
 __author__ = "Kevin Steptoe"
@@ -35,7 +36,13 @@ def _setup_logging(verbosity: int) -> None:
 @click.option("--lat", type=float, default=51.50, show_default=True, help="Latitude for species filtering")
 @click.option("--lon", type=float, default=-0.12, show_default=True, help="Longitude for species filtering")
 @click.option("--threshold", type=float, default=0.25, show_default=True, help="Minimum confidence (0.0–1.0)")
-@click.option("--db-path", type=click.Path(), default="/mnt/ssd/detections.db", show_default=True, help="SQLite database path")
+@click.option(
+    "--db-path",
+    type=click.Path(),
+    default="/mnt/ssd/detections.db",
+    show_default=True,
+    help="SQLite database path",
+)
 @click.option("--device", type=int, default=None, help="Audio device index (None = system default)")
 @click.option("--birdnet-path", type=click.Path(exists=True), default=None, help="Path to BirdNET-Analyzer directory")
 @click.option("--dashboard/--no-dashboard", default=True, show_default=True, help="Enable Rich live dashboard")

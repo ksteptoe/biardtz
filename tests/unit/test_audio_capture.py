@@ -5,7 +5,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from biardtz.config import Config
 
@@ -24,8 +23,6 @@ class TestAudioProducer:
         audio_data = np.random.randn(chunk_samples).astype(np.float32)
         half = chunk_samples // 2
 
-        call_count = 0
-
         def fake_input_stream(**kwargs):
             # Capture the callback so we can feed it data
             fake_input_stream.callback = kwargs.get("callback")
@@ -33,16 +30,16 @@ class TestAudioProducer:
 
         with patch.dict(sys.modules, {"sounddevice": MagicMock()}):
             import biardtz.audio_capture as ac_module
+
             # Re-patch sd.InputStream
             with patch.object(ac_module.sd, "InputStream", side_effect=fake_input_stream):
+
                 async def run_test():
                     out_queue = asyncio.Queue()
 
                     # We need to feed data through the thread_q inside audio_producer.
                     # The simplest approach: run audio_producer in a task and feed its internal queue.
                     import queue as stdlib_queue
-
-                    original_queue_class = stdlib_queue.Queue
 
                     test_queue = stdlib_queue.Queue(maxsize=16)
                     # Put audio data, then None sentinel
@@ -75,10 +72,12 @@ class TestAudioProducer:
 
             with patch.object(ac_module.sd, "InputStream", side_effect=fake_input_stream):
                 import queue as stdlib_queue
+
                 test_queue = stdlib_queue.Queue(maxsize=16)
                 test_queue.put(None)  # immediate stop
 
                 with patch.object(ac_module.queue, "Queue", return_value=test_queue):
+
                     async def run_test():
                         out_queue = asyncio.Queue()
                         await ac_module.audio_producer(config, out_queue)

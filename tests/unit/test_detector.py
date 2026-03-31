@@ -1,7 +1,6 @@
 """Tests for biardtz.detector."""
 
 import asyncio
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -39,11 +38,7 @@ class TestParseCsvOutput:
         assert Detector._parse_csv_output(csv_text) == []
 
     def test_skips_malformed_lines(self):
-        csv_text = (
-            "header\n"
-            "only\ttwo\tfields\n"
-            "0.0\t3.0\tParus major\tGreat Tit\t0.65\n"
-        )
+        csv_text = "header\n" "only\ttwo\tfields\n" "0.0\t3.0\tParus major\tGreat Tit\t0.65\n"
         result = Detector._parse_csv_output(csv_text)
         assert len(result) == 1
         assert result[0].common_name == "Great Tit"
@@ -55,16 +50,18 @@ class TestPredictDirect:
         birdnet_dir.mkdir()
         config = Config(birdnet_path=birdnet_dir, confidence_threshold=0.5)
 
-        mock_predict = MagicMock(return_value={
-            "Erithacus rubecula_European Robin": 0.92,
-            "Turdus merula_Common Blackbird": 0.3,  # below threshold
-            "Parus major_Great Tit": 0.75,
-        })
+        mock_predict = MagicMock(
+            return_value={
+                "Erithacus rubecula_European Robin": 0.92,
+                "Turdus merula_Common Blackbird": 0.3,  # below threshold
+                "Parus major_Great Tit": 0.75,
+            }
+        )
 
         with patch("biardtz.detector.sys") as mock_sys:
             mock_sys.path = []
             # Prevent the real import, manually set up
-            with patch.object(Detector, "_load_model") as mock_load:
+            with patch.object(Detector, "_load_model"):
                 detector = Detector(config)
                 detector._predict_fn = mock_predict
                 detector._use_subprocess = False

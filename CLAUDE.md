@@ -71,6 +71,25 @@ Agent(
 )
 ```
 
+### CI Fix Agent
+When CI fails, spawn a worktree-isolated agent to investigate and fix:
+```
+Agent(
+  description="Fix CI failures",
+  isolation="worktree",
+  run_in_background=True,
+  prompt="""
+    CI is failing. Investigate and fix the failures.
+    1. Run `gh run list --limit 1` then `gh run view <id> --log-failed` to get failure details
+    2. Read the failing files and understand the root cause
+    3. Apply minimal fixes — do not refactor unrelated code
+    4. Run the same checks locally to verify (e.g. ruff check ., pytest tests/ -v)
+    5. If lint failures are auto-fixable, prefer `ruff check --fix .` over manual edits
+    [specific CI context...]
+  """
+)
+```
+
 ### After Agents Complete
 Agents in worktrees can't always run bash (sandbox). After they finish:
 1. Copy changed files from `.claude/worktrees/agent-XXXX/` into the main tree
@@ -94,6 +113,10 @@ src/biardtz/
     cli.py              Click CLI entry point
     api.py              Public API re-exports
 ```
+
+## Workflow Rules
+
+- **After every fix, always release:** Run `make release KIND=patch` after committing and pushing any bug fix or CI fix. Do not skip this step.
 
 ## Conventions
 
