@@ -1,6 +1,6 @@
 # Deployment Guide: Raspberry Pi
 
-Step-by-step guide to getting biardtz running on a Raspberry Pi 4B for real-time bird identification.
+A step-by-step guide to getting biardtz running on a Raspberry Pi 4B for real-time bird identification. Written so you can walk through it together with someone new to the Pi.
 
 ## What you need
 
@@ -12,109 +12,232 @@ Step-by-step guide to getting biardtz running on a Raspberry Pi 4B for real-time
 - Power supply, ethernet cable (for initial setup)
 
 ### Software (installed during this guide)
-- Python 3.12+
-- PortAudio (for microphone access)
-- BirdNET-Analyzer (bird species inference)
-- biardtz (this project)
+- Miniforge (conda for ARM64) — manages Python versions
+- Python 3.12 (via conda) — required because TensorFlow doesn't support Python 3.13 yet
+- BirdNET-Analyzer v2.4.0 — bird species inference engine
+- biardtz — this project
+
+## Quick setup (automated)
+
+The project includes a `Makefile.pi` that automates every step below. Copy it to your Pi and run:
+
+```bash
+cd ~/biardtz
+make -f Makefile.pi setup    # installs everything
+make -f Makefile.pi test     # runs all tests
+make -f Makefile.pi run      # starts biardtz
+```
+
+Run `make -f Makefile.pi help` to see all available targets. The rest of this guide explains each step manually if you want to understand what's happening.
 
 ## Step 1: Initial Pi setup
 
-Flash your OS, boot the Pi, and connect via SSH over ethernet. See {doc}`pi_network_setup` to configure Wi-Fi and hostname-based SSH access.
+Flash Debian 13 (Trixie) or Raspberry Pi OS onto your MicroSD card, insert it, and power on the Pi. Connect via ethernet and SSH:
+
+```bash
+ssh kevin@<pi-ip-address>
+```
+
+See {doc}`pi_network_setup` to configure Wi-Fi and hostname-based SSH access so you can use `ssh pi` instead.
 
 ## Step 2: Install system packages
 
+These are Linux packages needed for audio capture and building Python extensions:
+
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3-dev python3-venv libportaudio2 portaudio19-dev git
+sudo apt install -y build-essential python3-dev libportaudio2 portaudio19-dev libsndfile1 git wget curl
 ```
 
-- `libportaudio2` / `portaudio19-dev` — required by the `sounddevice` library for audio capture
-- `python3-dev` — needed to compile Python packages on ARM
-- `python3-venv` — for creating isolated Python environments
+What each package does:
+- `build-essential` — C compiler, needed to build some Python packages on ARM
+- `libportaudio2` / `portaudio19-dev` — audio library used by `sounddevice` for microphone input
+- `libsndfile1` — audio file reading library
+- `git` — to clone the source code repositories
+- `wget` / `curl` — to download Miniforge
 
-## Step 3: Mount the SSD
+## Step 3: Install Miniforge (conda)
 
-biardtz writes detections to an SQLite database. An SSD avoids wearing out the SD card.
+Debian 13 ships with Python 3.13, but BirdNET-Analyzer needs Python 3.12 (TensorFlow doesn't support 3.13 yet). We use **Miniforge** — a lightweight conda distribution for ARM64 — to manage Python versions.
 
-### Find the SSD device
+### Download and install
+
 ```bash
-lsblk
+wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+bash Miniforge3-Linux-aarch64.sh
 ```
 
-### Format (if new) and mount
+The installer will ask you:
+1. **License** — press Enter to scroll, then type `yes`
+2. **Install location** — press Enter to accept the default (`~/miniforge3`)
+3. **Initialise conda** — type `yes` (this adds conda to your shell)
+
+Then reload your shell:
+
 ```bash
-sudo mkfs.ext4 /dev/sda1          # only if unformatted — this erases data!
-sudo mkdir -p /mnt/ssd
-sudo mount /dev/sda1 /mnt/ssd
-sudo chown $USER:$USER /mnt/ssd
+source ~/.bashrc
 ```
 
-### Make it permanent (auto-mount on boot)
-Add to `/etc/fstab`:
+### Verify it works
+
 ```bash
-echo '/dev/sda1 /mnt/ssd ext4 defaults,noatime 0 2' | sudo tee -a /etc/fstab
+conda --version
 ```
 
-The default database path is `/mnt/ssd/detections.db`. If you skip this step, override the path with `--db-path` when running biardtz.
+You should see something like `conda 24.x.x`.
 
-## Step 4: Clone BirdNET-Analyzer
+## Step 4: Create a Python 3.12 environment
 
-BirdNET-Analyzer is the machine learning engine that identifies bird species from audio. It must be cloned as a **sibling directory** to biardtz.
+Create a dedicated environment for biardtz with the correct Python version:
+
+```bash
+conda create -n biardtz python=3.12 -y
+conda activate biardtz
+```
+
+Verify:
+
+```bash
+python --version
+# Should show: Python 3.12.x
+```
+
+```{tip}
+Every time you open a new SSH session, you need to activate the environment:
+`conda activate biardtz`
+```
+
+## Step 5: Clone and install BirdNET-Analyzer
+
+BirdNET-Analyzer is the machine learning engine that identifies bird species from audio. It must be installed as a **sibling directory** to biardtz.
+
+### Clone the repository
 
 ```bash
 cd ~/
 git clone https://github.com/kahst/BirdNET-Analyzer.git
 ```
 
-Install its Python dependencies:
+### Install into the conda environment
+
 ```bash
+conda activate biardtz
 cd ~/BirdNET-Analyzer
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+pip install -e .
+pip install pyarrow
 ```
 
 ```{note}
-BirdNET uses TensorFlow Lite for inference on the Pi. Check the
-[BirdNET-Analyzer README](https://github.com/kahst/BirdNET-Analyzer) for any
-Pi-specific installation notes, especially around TFLite runtime.
+`pyarrow` is not listed in BirdNET's dependencies but is required at runtime.
+The install may take several minutes on the Pi — it's a large package.
 ```
 
-## Step 5: Clone and install biardtz
+### Test BirdNET
+
+BirdNET includes an example audio file. Let's make sure everything works:
+
+```bash
+birdnet-analyze birdnet_analyzer/example/soundscape.wav --lat 51.50 --lon -0.12 --rtype table
+```
+
+You should see a table of detected bird species with confidence scores. If this works, BirdNET is ready.
+
+## Step 6: Clone and install biardtz
 
 ```bash
 cd ~/
 git clone https://github.com/ksteptoe/biardtz.git
 cd biardtz
-python3 -m venv .venv
-.venv/bin/pip install -e .
+conda activate biardtz
+pip install -e ".[dev]"
 ```
 
-## Step 6: Check the USB microphone
+### Run the test suite
 
-Plug in your USB microphone and verify it's detected:
+All tests mock the hardware, so they work without a microphone or SSD:
+
+```bash
+pytest tests/ -v
+```
+
+All tests should pass. This confirms the code is correctly installed.
+
+### Check the CLI
+
+```bash
+biardtz --help
+```
+
+You should see the full list of command-line options.
+
+## Step 7: Mount the SSD (optional but recommended)
+
+biardtz writes detections to an SQLite database. An SSD avoids wearing out the SD card with constant writes.
+
+### Find the SSD device
+
+```bash
+lsblk
+```
+
+Look for your SSD (usually `/dev/sda1`).
+
+### Format (only if new — this erases all data!)
+
+```bash
+sudo mkfs.ext4 /dev/sda1
+```
+
+### Mount it
+
+```bash
+sudo mkdir -p /mnt/ssd
+sudo mount /dev/sda1 /mnt/ssd
+sudo chown $USER:$USER /mnt/ssd
+```
+
+### Make it permanent (auto-mount on boot)
+
+```bash
+echo '/dev/sda1 /mnt/ssd ext4 defaults,noatime 0 2' | sudo tee -a /etc/fstab
+```
+
+If you skip the SSD, override the database path when running:
+```bash
+biardtz --db-path ~/detections.db
+```
+
+## Step 8: Check the USB microphone
+
+Plug in your USB microphone and check it's detected:
 
 ```bash
 arecord -l
 ```
 
-You should see your device listed. Note the card/device number if you need to specify it later.
+You should see your microphone listed with a card and device number.
 
-To test recording:
+### Test recording (5 seconds)
+
 ```bash
 arecord -d 5 -f cd test.wav && aplay test.wav
 ```
 
-## Step 7: Run biardtz
+If you hear your recording played back, the microphone is working.
+
+## Step 9: Run biardtz
 
 ### Basic usage
+
 ```bash
-cd ~/biardtz
-.venv/bin/biardtz
+conda activate biardtz
+biardtz
 ```
 
 ### With custom options
+
 ```bash
-.venv/bin/biardtz \
+biardtz \
     --lat 51.50 \
     --lon -0.12 \
     --threshold 0.25 \
@@ -136,9 +259,17 @@ cd ~/biardtz
 | `--dashboard/--no-dashboard` | enabled | Rich live terminal dashboard |
 | `-v` / `-vv` | warnings only | Verbosity: `-v` info, `-vv` debug |
 
-## Step 8: Run as a service (optional)
+## Step 10: Run as a service (optional)
 
 To run biardtz automatically on boot, create a systemd service:
+
+```bash
+# Find the full path to biardtz in your conda env
+which biardtz
+# e.g. /home/kevin/miniforge3/envs/biardtz/bin/biardtz
+```
+
+Create the service file:
 
 ```bash
 sudo tee /etc/systemd/system/biardtz.service > /dev/null <<'EOF'
@@ -150,7 +281,7 @@ After=network.target
 Type=simple
 User=kevin
 WorkingDirectory=/home/kevin/biardtz
-ExecStart=/home/kevin/biardtz/.venv/bin/biardtz --lat 51.50 --lon -0.12
+ExecStart=/home/kevin/miniforge3/envs/biardtz/bin/biardtz --lat 51.50 --lon -0.12 --db-path /mnt/ssd/detections.db
 Restart=on-failure
 RestartSec=10
 
@@ -160,34 +291,59 @@ EOF
 ```
 
 Enable and start:
+
 ```bash
-sudo systemctl enable biardtz
-sudo systemctl start biardtz
+sudo systemctl enable biardtz     # start on boot
+sudo systemctl start biardtz      # start now
 ```
 
-Check status:
+Check it's running:
+
 ```bash
-sudo systemctl status biardtz
-journalctl -u biardtz -f    # follow live logs
+sudo systemctl status biardtz     # current status
+journalctl -u biardtz -f          # follow live logs (Ctrl+C to stop)
 ```
 
 ## Directory layout on the Pi
 
+When everything is installed, your Pi will look like this:
+
 ```
 ~/
-├── biardtz/              # this project
-│   ├── .venv/            # Python virtual environment
-│   └── src/biardtz/      # source code
-├── BirdNET-Analyzer/     # cloned separately
-│   └── .venv/            # its own virtual environment
+├── miniforge3/               # conda installation
+│   └── envs/biardtz/         # Python 3.12 environment
+├── biardtz/                  # this project
+│   ├── Makefile.pi           # automated setup script
+│   └── src/biardtz/          # source code
+├── BirdNET-Analyzer/         # cloned separately
+│   └── birdnet_analyzer/     # BirdNET v2.4.0 package
 /mnt/ssd/
-└── detections.db         # created automatically on first run
+└── detections.db             # created automatically on first run
 ```
+
+## Testing without hardware
+
+You can install and test everything without a microphone or SSD:
+
+- **biardtz tests** — all tests mock the hardware: `pytest tests/ -v`
+- **BirdNET test** — uses the included example file: `birdnet-analyze birdnet_analyzer/example/soundscape.wav --rtype table`
+- **CLI check** — `biardtz --help` confirms the CLI is working
+- **biardtz dry run** — `biardtz --db-path ~/test.db --no-dashboard -v` will start but fail at audio capture (no mic), confirming everything up to that point works
 
 ## Troubleshooting
 
+### Python version issues
+Debian 13 ships with Python 3.13, but TensorFlow needs 3.12. Always use the conda environment:
+```bash
+conda activate biardtz
+python --version   # should show 3.12.x
+```
+
 ### "BirdNET-Analyzer not found"
 Ensure it's cloned at `~/BirdNET-Analyzer/` (sibling to `~/biardtz/`), or pass `--birdnet-path /path/to/BirdNET-Analyzer`.
+
+### "No module named 'pyarrow'"
+Install it in the conda env: `conda activate biardtz && pip install pyarrow`
 
 ### No audio device found
 - Check `arecord -l` — is the USB mic listed?

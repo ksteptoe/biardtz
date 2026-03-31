@@ -1,0 +1,290 @@
+# --- Makefile.pi — Raspberry Pi deployment for biardtz ----------------------
+# Run on the Pi to install everything from scratch.
+#
+# Usage:
+#   make -f Makefile.pi setup        # full install (system pkgs + conda + birdnet + biardtz)
+#   make -f Makefile.pi test         # run all tests (biardtz + birdnet smoke test)
+#   make -f Makefile.pi run          # start biardtz
+#   make -f Makefile.pi service      # install systemd service
+#
+# Prerequisites: Debian 13 (Trixie) on Raspberry Pi 4B/5, internet connection.
+# -----------------------------------------------------------------------------
+
+.SILENT:
+SHELL := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
+.DEFAULT_GOAL := help
+
+# ---- Configuration ----------------------------------------------------------
+HOME_DIR        := $(HOME)
+MINIFORGE_URL   := https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+MINIFORGE_DIR   := $(HOME_DIR)/miniforge3
+CONDA           := $(MINIFORGE_DIR)/bin/conda
+CONDA_ENV       := biardtz
+PYTHON_VER      := 3.12
+
+BIARDTZ_DIR     := $(HOME_DIR)/biardtz
+BIRDNET_DIR     := $(HOME_DIR)/BirdNET-Analyzer
+BIARDTZ_REPO    := https://github.com/ksteptoe/biardtz.git
+BIRDNET_REPO    := https://github.com/kahst/BirdNET-Analyzer.git
+
+DB_PATH         := /mnt/ssd/detections.db
+LAT             := 51.50
+LON             := -0.12
+THRESHOLD       := 0.25
+USER_NAME       := $(USER)
+
+# ---- Stamps -----------------------------------------------------------------
+STAMPS          := .pi-stamps
+STAMP_APT       := $(STAMPS)/apt.done
+STAMP_CONDA     := $(STAMPS)/conda.done
+STAMP_ENV       := $(STAMPS)/env.done
+STAMP_BIRDNET   := $(STAMPS)/birdnet.done
+STAMP_BIARDTZ   := $(STAMPS)/biardtz.done
+
+# ---- Phony targets ----------------------------------------------------------
+.PHONY: help setup system-packages install-conda create-env \
+        install-birdnet install-biardtz test test-birdnet test-biardtz \
+        run service clean status check-mic
+
+help:
+	@echo ""
+	@echo "biardtz Raspberry Pi Setup"
+	@echo "=========================="
+	@echo ""
+	@echo "  make -f Makefile.pi setup          Full install (run this first)"
+	@echo ""
+	@echo "  Step-by-step (setup runs all of these):"
+	@echo "    make -f Makefile.pi system-packages   Install apt dependencies"
+	@echo "    make -f Makefile.pi install-conda     Install Miniforge (conda)"
+	@echo "    make -f Makefile.pi create-env        Create Python $(PYTHON_VER) conda env"
+	@echo "    make -f Makefile.pi install-birdnet   Clone & install BirdNET-Analyzer"
+	@echo "    make -f Makefile.pi install-biardtz   Clone & install biardtz"
+	@echo ""
+	@echo "  Testing:"
+	@echo "    make -f Makefile.pi test              Run all tests"
+	@echo "    make -f Makefile.pi test-birdnet      Test BirdNET with example audio"
+	@echo "    make -f Makefile.pi test-biardtz      Run biardtz pytest suite"
+	@echo "    make -f Makefile.pi check-mic         Check USB microphone"
+	@echo ""
+	@echo "  Running:"
+	@echo "    make -f Makefile.pi run               Start biardtz"
+	@echo "    make -f Makefile.pi service            Install systemd service"
+	@echo "    make -f Makefile.pi status             Show service status"
+	@echo ""
+	@echo "  Maintenance:"
+	@echo "    make -f Makefile.pi clean              Remove stamps (re-run setup)"
+	@echo ""
+
+$(STAMPS):
+	mkdir -p $(STAMPS)
+
+# =============================================================================
+# Step 1: System packages
+# =============================================================================
+$(STAMP_APT): | $(STAMPS)
+	@echo ""
+	@echo "Step 1/5: Installing system packages..."
+	@echo "========================================="
+	sudo apt update
+	sudo apt install -y \
+		build-essential \
+		python3-dev \
+		libportaudio2 \
+		portaudio19-dev \
+		libsndfile1 \
+		git \
+		wget \
+		curl
+	@echo "✅ System packages installed"
+	touch $@
+
+system-packages: $(STAMP_APT)
+
+# =============================================================================
+# Step 2: Install Miniforge (conda for ARM64)
+# =============================================================================
+$(STAMP_CONDA): | $(STAMPS)
+	@echo ""
+	@echo "Step 2/5: Installing Miniforge (conda)..."
+	@echo "==========================================="
+	@if [ -x "$(CONDA)" ]; then \
+		echo "Miniforge already installed at $(MINIFORGE_DIR)"; \
+	else \
+		echo "Downloading Miniforge for ARM64..."; \
+		wget -q --show-progress -O /tmp/miniforge.sh "$(MINIFORGE_URL)"; \
+		bash /tmp/miniforge.sh -b -p "$(MINIFORGE_DIR)"; \
+		rm -f /tmp/miniforge.sh; \
+		echo "Initialising conda for bash..."; \
+		"$(CONDA)" init bash; \
+		echo ""; \
+		echo "⚠️  Run 'source ~/.bashrc' or log out and back in, then re-run this target."; \
+	fi
+	@echo "✅ Miniforge installed"
+	touch $@
+
+install-conda: $(STAMP_CONDA)
+
+# =============================================================================
+# Step 3: Create conda environment with Python 3.12
+# =============================================================================
+$(STAMP_ENV): $(STAMP_CONDA) | $(STAMPS)
+	@echo ""
+	@echo "Step 3/5: Creating conda environment '$(CONDA_ENV)' with Python $(PYTHON_VER)..."
+	@echo "=============================================================================="
+	@if "$(CONDA)" env list | grep -q "$(CONDA_ENV)"; then \
+		echo "Conda env '$(CONDA_ENV)' already exists"; \
+	else \
+		"$(CONDA)" create -n $(CONDA_ENV) python=$(PYTHON_VER) -y; \
+	fi
+	@echo "✅ Conda environment '$(CONDA_ENV)' ready"
+	touch $@
+
+create-env: $(STAMP_ENV)
+
+# =============================================================================
+# Step 4: Clone and install BirdNET-Analyzer
+# =============================================================================
+$(STAMP_BIRDNET): $(STAMP_ENV) | $(STAMPS)
+	@echo ""
+	@echo "Step 4/5: Installing BirdNET-Analyzer..."
+	@echo "=========================================="
+	@if [ ! -d "$(BIRDNET_DIR)" ]; then \
+		echo "Cloning BirdNET-Analyzer..."; \
+		git clone "$(BIRDNET_REPO)" "$(BIRDNET_DIR)"; \
+	else \
+		echo "BirdNET-Analyzer already cloned at $(BIRDNET_DIR)"; \
+		cd "$(BIRDNET_DIR)" && git pull; \
+	fi
+	@echo "Installing BirdNET-Analyzer into conda env..."
+	$(CONDA) run -n $(CONDA_ENV) pip install -e "$(BIRDNET_DIR)"
+	$(CONDA) run -n $(CONDA_ENV) pip install pyarrow
+	@echo "✅ BirdNET-Analyzer installed"
+	touch $@
+
+install-birdnet: $(STAMP_BIRDNET)
+
+# =============================================================================
+# Step 5: Clone and install biardtz
+# =============================================================================
+$(STAMP_BIARDTZ): $(STAMP_ENV) | $(STAMPS)
+	@echo ""
+	@echo "Step 5/5: Installing biardtz..."
+	@echo "================================"
+	@if [ ! -d "$(BIARDTZ_DIR)" ]; then \
+		echo "Cloning biardtz..."; \
+		git clone "$(BIARDTZ_REPO)" "$(BIARDTZ_DIR)"; \
+	else \
+		echo "biardtz already cloned at $(BIARDTZ_DIR)"; \
+		cd "$(BIARDTZ_DIR)" && git pull; \
+	fi
+	@echo "Installing biardtz into conda env..."
+	$(CONDA) run -n $(CONDA_ENV) pip install -e "$(BIARDTZ_DIR)[dev]"
+	@echo "✅ biardtz installed"
+	touch $@
+
+install-biardtz: $(STAMP_BIARDTZ)
+
+# =============================================================================
+# Full setup
+# =============================================================================
+setup: $(STAMP_APT) $(STAMP_CONDA) $(STAMP_ENV) $(STAMP_BIRDNET) $(STAMP_BIARDTZ)
+	@echo ""
+	@echo "============================================"
+	@echo "✅ Setup complete!"
+	@echo ""
+	@echo "To activate the environment:"
+	@echo "  conda activate $(CONDA_ENV)"
+	@echo ""
+	@echo "To test everything:"
+	@echo "  make -f Makefile.pi test"
+	@echo ""
+	@echo "To start biardtz:"
+	@echo "  make -f Makefile.pi run"
+	@echo "============================================"
+
+# =============================================================================
+# Testing
+# =============================================================================
+test-birdnet: $(STAMP_BIRDNET)
+	@echo ""
+	@echo "Testing BirdNET-Analyzer with example audio..."
+	@echo "================================================"
+	$(CONDA) run -n $(CONDA_ENV) birdnet-analyze \
+		"$(BIRDNET_DIR)/birdnet_analyzer/example/soundscape.wav" \
+		--lat $(LAT) --lon $(LON) --rtype table
+	@echo ""
+	@echo "✅ BirdNET-Analyzer is working"
+
+test-biardtz: $(STAMP_BIARDTZ)
+	@echo ""
+	@echo "Running biardtz test suite..."
+	@echo "==============================="
+	cd "$(BIARDTZ_DIR)" && $(CONDA) run -n $(CONDA_ENV) pytest tests/ -v
+	@echo ""
+	@echo "✅ biardtz tests passed"
+
+test: test-biardtz test-birdnet
+	@echo ""
+	@echo "============================================"
+	@echo "✅ All tests passed!"
+	@echo "============================================"
+
+check-mic:
+	@echo ""
+	@echo "Checking for USB microphone..."
+	@echo "==============================="
+	arecord -l
+	@echo ""
+	@echo "To test recording (5 seconds):"
+	@echo "  arecord -d 5 -f cd test.wav && aplay test.wav"
+
+# =============================================================================
+# Running
+# =============================================================================
+run: $(STAMP_BIARDTZ) $(STAMP_BIRDNET)
+	@echo "Starting biardtz..."
+	$(CONDA) run -n $(CONDA_ENV) biardtz \
+		--lat $(LAT) \
+		--lon $(LON) \
+		--threshold $(THRESHOLD) \
+		--db-path $(DB_PATH) \
+		--dashboard \
+		-v
+
+# =============================================================================
+# Systemd service
+# =============================================================================
+service:
+	@echo "Installing biardtz systemd service..."
+	@CONDA_BIARDTZ=$$($(CONDA) run -n $(CONDA_ENV) which biardtz); \
+	sudo tee /etc/systemd/system/biardtz.service > /dev/null <<EOF
+	[Unit]
+	Description=biardtz bird identification
+	After=network.target
+
+	[Service]
+	Type=simple
+	User=$(USER_NAME)
+	WorkingDirectory=$(BIARDTZ_DIR)
+	ExecStart=$$CONDA_BIARDTZ --lat $(LAT) --lon $(LON) --db-path $(DB_PATH)
+	Restart=on-failure
+	RestartSec=10
+
+	[Install]
+	WantedBy=multi-user.target
+	EOF
+	sudo systemctl daemon-reload
+	sudo systemctl enable biardtz
+	sudo systemctl start biardtz
+	@echo "✅ biardtz service installed and started"
+
+status:
+	sudo systemctl status biardtz
+
+# =============================================================================
+# Clean
+# =============================================================================
+clean:
+	rm -rf $(STAMPS)
+	@echo "Stamps cleared. Run 'make -f Makefile.pi setup' to re-install."
