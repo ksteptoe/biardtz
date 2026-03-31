@@ -34,8 +34,8 @@ PYTHON_SYS := $(shell command -v python >/dev/null 2>&1 && echo python || echo p
 PY = $(if $(wildcard $(VENV)/Scripts/python.exe),$(VENV)/Scripts/python.exe,$(VENV)/bin/python)
 
 # Main code package (templated)
-DIST := biardz
-PKG  := biardz
+DIST := biardtz
+PKG  := biardtz
 
 CODE_DIRS  := src/$(PKG)
 STAMPS_DIR := .stamps

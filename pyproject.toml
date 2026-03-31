@@ -3,17 +3,21 @@ requires = ["setuptools>=80", "wheel", "setuptools-scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "biardz"
+name = "biardtz"
 dynamic = ["version"]
 description = "Project scaffolded with PyScaffold Clickstart."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "Your Name", email = "you@example.com" }]
+authors = [{ name = "Kevin Steptoe" }]
 
 # Runtime-only deps
 dependencies = [
     "click>=8.1",
+    "sounddevice>=0.5",
+    "numpy>=1.26",
+    "aiosqlite>=0.20",
+    "rich>=13",
 ]
 
 [project.optional-dependencies]
@@ -30,18 +34,18 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://example.com/biardz"
-Repository = "https://github.com/example/biardz"
+Homepage = "https://example.com/biardtz"
+Repository = "https://github.com/example/biardtz"
 
 [project.scripts]
 # For Clickstart-style CLIs; adapt or remove if the project has no CLI
-biardz = "biardz.cli:cli"
+biardtz = "biardtz.cli:cli"
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
 local_scheme = "dirty-tag"
 fallback_version = "0.0.0"
-write_to = "src/biardz/_version.py"
+write_to = "src/biardtz/_version.py"
 
 [tool.ruff]
 line-length = 120
@@ -61,7 +65,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["biardz"]
+source = ["biardtz"]
 omit = ["tests/*"]
 
 [tool.coverage.report]

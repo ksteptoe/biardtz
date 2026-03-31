@@ -1,6 +1,6 @@
-# biardz
+# biardtz
 
-This is the documentation of **biardz**.
+This is the documentation of **biardtz**.
 
 ```{note}
 This is the main page of your project's [Sphinx](https://www.sphinx-doc.org/) documentation.
@@ -18,6 +18,7 @@ by default and lets you include documentation from docstrings. Docstrings can be
 :maxdepth: 2
 
 Overview <readme>
+Build Log <build_log>
 Contributions & Help <contributing>
 License <license>
 Authors <authors>

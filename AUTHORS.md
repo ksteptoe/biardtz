@@ -1,3 +1,3 @@
 # Contributors
 
-- Kevin Steptoe <kevin.steptoe@gmail.com>
+- Kevin Steptoe

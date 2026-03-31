@@ -1,4 +1,4 @@
-# Sphinx configuration for biardz
+# Sphinx configuration for biardtz
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
@@ -18,7 +18,7 @@ except ImportError:
     from sphinx import apidoc
 
 output_dir = os.path.join(__location__, "api")
-module_dir = os.path.join(__location__, "../src/biardz")
+module_dir = os.path.join(__location__, "../src/biardtz")
 
 try:
     shutil.rmtree(output_dir)
@@ -60,11 +60,11 @@ source_suffix = {
 
 master_doc = "index"
 
-project = "biardz"
+project = "biardtz"
 copyright = "2026, Kevin Steptoe"
 
 try:
-    from biardz import __version__ as version
+    from biardtz import __version__ as version
 except ImportError:
     version = ""
 
@@ -100,14 +100,14 @@ html_theme_options = {
 
 html_static_path = ["_static"]
 
-htmlhelp_basename = "biardz-doc"
+htmlhelp_basename = "biardtz-doc"
 
 # -- Options for LaTeX output ------------------------------------------------
 
 latex_elements = {}
 
 latex_documents = [
-    ("index", "user_guide.tex", "biardz Documentation", "Kevin Steptoe", "manual")
+    ("index", "user_guide.tex", "biardtz Documentation", "Kevin Steptoe", "manual")
 ]
 
 # -- External mapping --------------------------------------------------------

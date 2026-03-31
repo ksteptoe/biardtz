@@ -4,4 +4,4 @@ import importlib
 
 
 def test_package_importable():
-    importlib.import_module("biardz")
+    importlib.import_module("biardtz")
