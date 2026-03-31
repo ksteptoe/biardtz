@@ -1,6 +1,8 @@
 """Tests for biardtz.cli."""
 
-from unittest.mock import patch
+import sys
+import types
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -22,10 +24,25 @@ class TestCliHelp:
         assert "version" in result.output.lower() or "." in result.output or "unknown" in result.output
 
 
+def _ensure_main_importable():
+    """Inject a stub biardtz.main module if it cannot be imported.
+
+    On CI the PortAudio C library is absent, so ``import sounddevice``
+    (pulled in transitively by ``biardtz.main``) raises ``OSError``.
+    A lightweight stub with a mock ``run`` avoids the issue.
+    """
+    try:
+        from biardtz import main  # noqa: F401
+    except (ImportError, OSError):
+        stub = types.ModuleType("biardtz.main")
+        stub.run = MagicMock()
+        sys.modules["biardtz.main"] = stub
+
+
 class TestCliRun:
     @patch("biardtz.cli.asyncio.run")
-    @patch("biardtz.main.Detector")
-    def test_passes_config_to_run(self, mock_detector, mock_asyncio_run):
+    def test_passes_config_to_run(self, mock_asyncio_run):
+        _ensure_main_importable()
         runner = CliRunner()
         runner.invoke(
             cli,
@@ -49,8 +66,8 @@ class TestCliRun:
         coro.close()
 
     @patch("biardtz.cli.asyncio.run")
-    @patch("biardtz.main.Detector")
-    def test_default_invocation(self, mock_detector, mock_asyncio_run):
+    def test_default_invocation(self, mock_asyncio_run):
+        _ensure_main_importable()
         runner = CliRunner()
         runner.invoke(cli, [])
         assert mock_asyncio_run.called
