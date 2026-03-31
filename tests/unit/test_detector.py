@@ -44,6 +44,46 @@ class TestParseCsvOutput:
         assert result[0].common_name == "Great Tit"
 
 
+class TestLoadModel:
+    """Tests for _load_model — covers lines 42-51 (direct import path)."""
+
+    def test_load_model_direct_import_success(self, tmp_path):
+        birdnet_dir = tmp_path / "BirdNET-Analyzer"
+        birdnet_dir.mkdir()
+        config = Config(birdnet_path=birdnet_dir)
+
+        mock_predict = MagicMock()
+        mock_analyze = MagicMock()
+        mock_analyze.predict = mock_predict
+
+        import sys as real_sys
+
+        with patch.dict(real_sys.modules, {"analyze": mock_analyze}):
+            detector = Detector(config)
+
+        assert detector._predict_fn is mock_predict
+        assert detector._use_subprocess is False
+
+    def test_load_model_import_fails_uses_subprocess(self, tmp_path):
+        birdnet_dir = tmp_path / "BirdNET-Analyzer"
+        birdnet_dir.mkdir()
+        config = Config(birdnet_path=birdnet_dir)
+
+        import builtins
+
+        original_import = builtins.__import__
+
+        def fail_analyze(name, *args, **kwargs):
+            if name == "analyze":
+                raise ImportError("no analyze module")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fail_analyze):
+            detector = Detector(config)
+
+        assert detector._use_subprocess is True
+
+
 class TestPredictDirect:
     def test_predict_filters_by_confidence(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"

@@ -87,3 +87,77 @@ class TestAudioProducer:
             mock_stream.start.assert_called_once()
             mock_stream.stop.assert_called_once()
             mock_stream.close.assert_called_once()
+
+    def test_callback_warns_on_status(self):
+        """Cover lines 22-24: callback logs warning when status is set."""
+        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        mock_stream = MagicMock()
+        captured_callback = None
+
+        def fake_input_stream(**kwargs):
+            nonlocal captured_callback
+            captured_callback = kwargs.get("callback")
+            return mock_stream
+
+        with patch.dict(sys.modules, {"sounddevice": MagicMock()}):
+            import biardtz.audio_capture as ac_module
+
+            with patch.object(ac_module.sd, "InputStream", side_effect=fake_input_stream):
+                import queue as stdlib_queue
+
+                test_queue = stdlib_queue.Queue(maxsize=16)
+                test_queue.put(None)
+
+                with patch.object(ac_module.queue, "Queue", return_value=test_queue):
+
+                    async def run_test():
+                        out_queue = asyncio.Queue()
+                        await ac_module.audio_producer(config, out_queue)
+
+                    asyncio.run(run_test())
+
+            # Now invoke the captured callback with a status flag
+            assert captured_callback is not None
+            indata = np.random.randn(4096, 1).astype(np.float32)
+            with patch.object(ac_module._logger, "warning") as mock_warn:
+                captured_callback(indata, 4096, None, "input overflow")
+                mock_warn.assert_called_once()
+
+    def test_callback_handles_multidim_input(self):
+        """Cover line 24: callback extracts column 0 from multi-dim input."""
+        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        mock_stream = MagicMock()
+        captured_callback = None
+
+        def fake_input_stream(**kwargs):
+            nonlocal captured_callback
+            captured_callback = kwargs.get("callback")
+            return mock_stream
+
+        with patch.dict(sys.modules, {"sounddevice": MagicMock()}):
+            import biardtz.audio_capture as ac_module
+
+            with patch.object(ac_module.sd, "InputStream", side_effect=fake_input_stream):
+                import queue as stdlib_queue
+
+                real_queue = stdlib_queue.Queue(maxsize=16)
+                real_queue.put(None)
+
+                with patch.object(ac_module.queue, "Queue", return_value=real_queue):
+
+                    async def run_test():
+                        out_queue = asyncio.Queue()
+                        await ac_module.audio_producer(config, out_queue)
+
+                    asyncio.run(run_test())
+
+            # Test with 2D input (multi-channel)
+            assert captured_callback is not None
+            indata_2d = np.random.randn(4096, 2).astype(np.float32)
+            # The callback puts data on thread_q; we just verify no error
+            # We need a fresh queue for the callback to put into
+            fresh_q = stdlib_queue.Queue(maxsize=16)
+            with patch.object(ac_module.queue, "Queue", return_value=fresh_q):
+                # Callback uses thread_q from closure, not ac_module.queue
+                # So we just call it and check it doesn't crash
+                captured_callback(indata_2d, 4096, None, None)

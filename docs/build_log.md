@@ -10,7 +10,7 @@
 
 **Author:** Kevin Steptoe
 **Start date:** March 2026
-**Status:** Hardware procurement complete — core software implemented
+**Status:** Hardware procurement complete — core software implemented — CI pipeline active
 
 ---
 
@@ -173,7 +173,12 @@ biardtz/                         # Repository root (PyScaffold layout)
 │   ├── build_log.md            # This file
 │   ├── conf.py                 # Sphinx config
 │   └── index.md                # Documentation landing page
-├── tests/                      # (to be added)
+├── tests/
+│   ├── unit/                   # Fast unit tests (mocked dependencies)
+│   └── integration/            # Filesystem and cross-module tests
+├── .github/
+│   └── workflows/ci.yml        # GitHub Actions CI (lint + test matrix)
+├── Makefile                    # Build, test, lint, release automation
 └── BirdNET-Analyzer/           # Cornell submodule (git clone, outside package)
 ```
 
@@ -184,6 +189,9 @@ biardtz/                         # Repository root (PyScaffold layout)
 ### Phase 1 — Bird Detection (current)
 - [x] Hardware procurement
 - [x] Core software implementation (config, audio, detector, logger, dashboard, CLI)
+- [x] Unit and integration test suites
+- [x] GitHub Actions CI (Ruff lint + pytest on Python 3.12/3.13)
+- [x] Makefile with incremental test caching and release automation
 - [ ] Raspberry Pi OS flash and initial setup
 - [ ] BirdNET-Analyzer installation on Pi
 - [ ] First live detection test

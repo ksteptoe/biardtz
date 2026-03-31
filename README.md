@@ -1,5 +1,6 @@
 # biardtz
 
+[![CI](https://github.com/ksteptoe/biardtz/actions/workflows/ci.yml/badge.svg)](https://github.com/ksteptoe/biardtz/actions/workflows/ci.yml)
 [![PyPI-Server](https://img.shields.io/pypi/v/biardtz.svg)](https://pypi.org/project/biardtz/)
 [![Project generated with PyScaffold](https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold)](https://pyscaffold.org/)
 
@@ -12,7 +13,11 @@ See the full [Build Log](docs/build_log.md) for hardware details, architecture, 
 ## Quick Start
 
 ```bash
-pip install -e .
+# Create a virtual environment and install with dev dependencies
+python -m venv .venv
+.venv/Scripts/pip install -e ".[dev]"   # Windows
+# .venv/bin/pip install -e ".[dev]"     # Linux/Mac
+
 biardtz --help
 ```
 
@@ -30,14 +35,31 @@ Key CLI options:
 ## Development
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/ksteptoe/biardtz.git
 cd biardtz
-make dev      # Install in development mode with all dependencies
-make test     # Run tests
-make lint     # Run linter
-make format   # Format code
-make docs     # Build documentation
+make bootstrap  # Create .venv and install .[dev]
+make test       # Run unit + integration tests (cached via stamps)
+make test-all   # Run all tests without caching
+make lint       # Run Ruff linter and format check
+make format     # Auto-fix lint issues and format code
+make docs       # Build Sphinx/MyST docs to docs/_build/html
 ```
+
+### Releasing
+
+Versions are derived from git tags via setuptools-scm. After every fix:
+
+```bash
+make release KIND=patch   # runs tests, shows changelog, tags and pushes
+```
+
+### Continuous Integration
+
+GitHub Actions runs on every push and PR to `main`:
+
+- **Lint job:** Ruff check on Python 3.12
+- **Test job:** Unit and integration tests on Python 3.12 and 3.13
+- CI installs `libportaudio2` for the `sounddevice` dependency
 
 ## Repository Layout
 
@@ -57,7 +79,11 @@ docs/
     build_log.md        Comprehensive build log — hardware, architecture, setup guide
     conf.py             Sphinx configuration
     index.md            Documentation landing page
-tests/                  (to be added)
+tests/
+    unit/               Fast unit tests (mocked dependencies)
+    integration/        Filesystem and cross-module tests
+.github/
+    workflows/ci.yml    GitHub Actions CI (lint + test matrix)
 ```
 
 ## For Claude -- Agent Orientation
@@ -68,7 +94,6 @@ tests/                  (to be added)
 
 **What needs doing next:**
 - Testing on Raspberry Pi 5 hardware with the ReSpeaker mic array
-- Unit and integration tests
 - systemd service file for auto-start on boot
 - Tuning confidence thresholds against local species
 - Phase 2: bat detection with BatDetect2

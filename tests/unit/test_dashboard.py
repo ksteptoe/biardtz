@@ -1,5 +1,8 @@
 """Tests for biardtz.dashboard."""
 
+import asyncio
+from unittest.mock import MagicMock, patch
+
 from rich.table import Table
 from rich.text import Text
 
@@ -65,3 +68,64 @@ class TestConfidenceColoring:
         cell = self._get_conf_cell(0.30)
         assert isinstance(cell, Text)
         assert cell.style == "dim"
+
+
+class TestDashboardRun:
+    """Tests for Dashboard.run() async method — covers lines 53-60."""
+
+    def test_run_processes_detections(self):
+        det = Detection("Robin", "Erithacus rubecula", 0.85)
+
+        async def run_test():
+            dashboard = Dashboard()
+            q = asyncio.Queue()
+            q.put_nowait(det)
+
+            with patch("biardtz.dashboard.Live") as mock_live_cls:
+                mock_live = MagicMock()
+                mock_live.__enter__ = MagicMock(return_value=mock_live)
+                mock_live.__exit__ = MagicMock(return_value=False)
+                mock_live_cls.return_value = mock_live
+
+                task = asyncio.create_task(dashboard.run(q))
+                await asyncio.sleep(0.05)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            assert dashboard._total == 1
+            assert "Robin" in dashboard._species
+            assert len(dashboard._recent) == 1
+
+        asyncio.run(run_test())
+
+    def test_run_processes_multiple_detections(self):
+        det1 = Detection("Robin", "Erithacus rubecula", 0.85)
+        det2 = Detection("Blackbird", "Turdus merula", 0.55)
+
+        async def run_test():
+            dashboard = Dashboard()
+            q = asyncio.Queue()
+            q.put_nowait(det1)
+            q.put_nowait(det2)
+
+            with patch("biardtz.dashboard.Live") as mock_live_cls:
+                mock_live = MagicMock()
+                mock_live.__enter__ = MagicMock(return_value=mock_live)
+                mock_live.__exit__ = MagicMock(return_value=False)
+                mock_live_cls.return_value = mock_live
+
+                task = asyncio.create_task(dashboard.run(q))
+                await asyncio.sleep(0.05)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            assert dashboard._total == 2
+            assert dashboard._species == {"Robin", "Blackbird"}
+
+        asyncio.run(run_test())
