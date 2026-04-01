@@ -58,3 +58,4 @@ src/biardtz/_version.py
 .claude/settings.local.json
 .claude/tool_acceptances.log
 .claude/worktrees/
+imager/
