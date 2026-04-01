@@ -18,7 +18,7 @@ class TestRealInference:
     def test_predict_returns_detection_list(self, real_detector):
         """Feed synthetic noise and verify return type / structure."""
         chunk = np.random.randn(int(SAMPLE_RATE * CHUNK_DURATION)).astype(np.float32) * 0.01
-        detections = asyncio.get_event_loop().run_until_complete(
+        detections = asyncio.run(
             real_detector.predict(chunk)
         )
 
@@ -32,7 +32,7 @@ class TestRealInference:
     def test_predict_with_silence(self, real_detector):
         """Silent input should return empty or low-confidence detections."""
         chunk = np.zeros(int(SAMPLE_RATE * CHUNK_DURATION), dtype=np.float32)
-        detections = asyncio.get_event_loop().run_until_complete(
+        detections = asyncio.run(
             real_detector.predict(chunk)
         )
         assert isinstance(detections, list)
@@ -43,7 +43,7 @@ class TestRealInference:
         """Ensure 16 kHz input doesn't crash (BirdNET expects 48 kHz internally)."""
         chunk = np.random.randn(int(SAMPLE_RATE * CHUNK_DURATION)).astype(np.float32) * 0.05
         # Should not raise
-        detections = asyncio.get_event_loop().run_until_complete(
+        detections = asyncio.run(
             real_detector.predict(chunk)
         )
         assert isinstance(detections, list)

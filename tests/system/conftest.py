@@ -26,6 +26,6 @@ def real_logger(live_config):
     from biardtz.logger import DetectionLogger
 
     logger = DetectionLogger(live_config)
-    asyncio.get_event_loop().run_until_complete(logger.init_db())
+    asyncio.run(logger.init_db())
     yield logger
-    asyncio.get_event_loop().run_until_complete(logger.close())
+    asyncio.run(logger.close())

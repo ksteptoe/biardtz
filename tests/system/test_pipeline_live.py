@@ -51,7 +51,7 @@ class TestLivePipeline:
 
             return summary
 
-        summary = asyncio.get_event_loop().run_until_complete(_run())
+        summary = asyncio.run(_run())
 
         # DB file should exist
         assert live_config.db_path.exists()

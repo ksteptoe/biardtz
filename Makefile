@@ -62,7 +62,7 @@ INTEG_DIR  := tests/integration
 SYSTEM_DIR := tests/system  # live/system tests (opt-in, uncached)
 
 .PHONY: help venv bootstrap precommit docs lint format \
-        test test-all test-live clean-tests \
+        test test-all test-live test-full clean-tests \
         build upload version fetch-tags changelog changelog-md \
         release-show release release-patch release-minor release-major \
         clean run-cli check-clean
@@ -78,6 +78,7 @@ help:
 	@echo "  make test                - run cached unit+integration tests (not live)"
 	@echo "  make test-all            - run all non-live tests (no stamps)"
 	@echo "  make test-live           - run @live tests only (no cache)"
+	@echo "  make test-full           - run ALL tests (unit+integration+live)"
 	@echo "  make build               - build wheel+sdist"
 	@echo "  make upload              - upload to PyPI (via Twine)"
 	@echo "  make version             - print setuptools_scm inferred version"
@@ -190,6 +191,9 @@ test-all: $(ENV_STAMP)
 
 test-live: $(ENV_STAMP)
 	SF_LIVE_TESTS=true "$(PY)" -m pytest -v -m live $(PYTEST_WARN) --timeout=180 --cov=$(PKG) --cov-report=xml
+
+test-full: $(ENV_STAMP)
+	"$(PY)" -m pytest -v $(PYTEST_WARN) $(PYTEST_TIMEOUT) --cov=$(PKG) --cov-report=term-missing --cov-report=xml --timeout=180
 
 clean-tests:
 	rm -rf $(STAMPS_DIR)
