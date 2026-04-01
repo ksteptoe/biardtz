@@ -18,53 +18,43 @@ class TestDetectorInit:
             Detector(config)
 
 
-class TestParseCsvOutput:
-    def test_parses_valid_csv(self):
-        csv_text = (
-            "Start (s)\tEnd (s)\tScientific name\tCommon name\tConfidence\n"
-            "0.0\t3.0\tErithacus rubecula\tEuropean Robin\t0.92\n"
-            "0.0\t3.0\tTurdus merula\tCommon Blackbird\t0.78\n"
-        )
-        result = Detector._parse_csv_output(csv_text)
-        assert len(result) == 2
-        assert result[0] == Detection("European Robin", "Erithacus rubecula", 0.92)
-        assert result[1] == Detection("Common Blackbird", "Turdus merula", 0.78)
-
-    def test_empty_csv(self):
-        assert Detector._parse_csv_output("") == []
-
-    def test_header_only(self):
-        csv_text = "Start (s)\tEnd (s)\tScientific name\tCommon name\tConfidence\n"
-        assert Detector._parse_csv_output(csv_text) == []
-
-    def test_skips_malformed_lines(self):
-        csv_text = "header\n" "only\ttwo\tfields\n" "0.0\t3.0\tParus major\tGreat Tit\t0.65\n"
-        result = Detector._parse_csv_output(csv_text)
-        assert len(result) == 1
-        assert result[0].common_name == "Great Tit"
-
-
 class TestLoadModel:
-    """Tests for _load_model — covers lines 42-51 (direct import path)."""
+    """Tests for _load_model — covers the birdnet_analyzer import path."""
 
-    def test_load_model_direct_import_success(self, tmp_path):
+    def test_load_model_success(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"
         birdnet_dir.mkdir()
         config = Config(birdnet_path=birdnet_dir)
 
-        mock_predict = MagicMock()
-        mock_analyze = MagicMock()
-        mock_analyze.predict = mock_predict
+        mock_birdnet_cfg = MagicMock()
+        mock_birdnet_cfg.BIRDNET_MODEL_PATH = "checkpoints/model.tflite"
+        mock_birdnet_cfg.BIRDNET_LABELS_FILE = "labels.txt"
+        mock_birdnet_cfg.BIRDNET_SAMPLE_RATE = 48000
+        mock_birdnet_cfg.BIRDNET_SIG_LENGTH = 3.0
+        mock_birdnet_cfg.LOCATION_FILTER_THRESHOLD = 0.03
+        mock_birdnet_model = MagicMock()
+        mock_read_lines = MagicMock(return_value=["Species1_Common1", "Species2_Common2"])
+        mock_get_species = MagicMock(return_value=["Species1_Common1"])
 
-        import sys as real_sys
+        mock_parent = MagicMock()
+        mock_parent.config = mock_birdnet_cfg
+        mock_parent.model = mock_birdnet_model
 
-        with patch.dict(real_sys.modules, {"analyze": mock_analyze}):
+        with patch.dict("sys.modules", {
+            "birdnet_analyzer": mock_parent,
+            "birdnet_analyzer.config": mock_birdnet_cfg,
+            "birdnet_analyzer.model": mock_birdnet_model,
+            "birdnet_analyzer.species": MagicMock(),
+            "birdnet_analyzer.species.utils": MagicMock(get_species_list=mock_get_species),
+            "birdnet_analyzer.utils": MagicMock(read_lines=mock_read_lines),
+        }):
             detector = Detector(config)
 
-        assert detector._predict_fn is mock_predict
-        assert detector._use_subprocess is False
+        assert detector._birdnet_model is mock_birdnet_model
+        assert detector._labels == ["Species1_Common1", "Species2_Common2"]
+        mock_birdnet_model.load_model.assert_called_once()
 
-    def test_load_model_import_fails_uses_subprocess(self, tmp_path):
+    def test_load_model_import_fails_raises(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"
         birdnet_dir.mkdir()
         config = Config(birdnet_path=birdnet_dir)
@@ -73,41 +63,44 @@ class TestLoadModel:
 
         original_import = builtins.__import__
 
-        def fail_analyze(name, *args, **kwargs):
-            if name == "analyze":
-                raise ImportError("no analyze module")
+        def fail_birdnet(name, *args, **kwargs):
+            if name == "birdnet_analyzer":
+                raise ImportError("no birdnet_analyzer module")
             return original_import(name, *args, **kwargs)
 
-        with patch("builtins.__import__", side_effect=fail_analyze):
-            detector = Detector(config)
+        with patch("builtins.__import__", side_effect=fail_birdnet):
+            with pytest.raises(ImportError, match="Failed to import birdnet_analyzer"):
+                Detector(config)
 
-        assert detector._use_subprocess is True
 
-
-class TestPredictDirect:
+class TestPredictSync:
     def test_predict_filters_by_confidence(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"
         birdnet_dir.mkdir()
         config = Config(birdnet_path=birdnet_dir, confidence_threshold=0.5)
 
-        mock_predict = MagicMock(
-            return_value={
-                "Erithacus rubecula_European Robin": 0.92,
-                "Turdus merula_Common Blackbird": 0.3,  # below threshold
-                "Parus major_Great Tit": 0.75,
-            }
-        )
+        labels = [
+            "Erithacus rubecula_European Robin",
+            "Turdus merula_Common Blackbird",
+            "Parus major_Great Tit",
+        ]
+        # Prediction: batch of 1 sample, scores for each label
+        predictions = np.array([[0.92, 0.3, 0.75]])
 
-        with patch("biardtz.detector.sys") as mock_sys:
-            mock_sys.path = []
-            # Prevent the real import, manually set up
-            with patch.object(Detector, "_load_model"):
-                detector = Detector(config)
-                detector._predict_fn = mock_predict
-                detector._use_subprocess = False
+        mock_model = MagicMock()
+        mock_model.predict.return_value = predictions
+        mock_cfg = MagicMock()
+        mock_cfg.BIRDNET_SAMPLE_RATE = 48000
+        mock_cfg.SPECIES_LIST = []
 
-                chunk = np.zeros(144_000, dtype=np.float32)
-                result = detector._predict_direct(chunk)
+        with patch.object(Detector, "_load_model"):
+            detector = Detector(config)
+            detector._birdnet_model = mock_model
+            detector._birdnet_cfg = mock_cfg
+            detector._labels = labels
+
+            chunk = np.zeros(48_000, dtype=np.float32)
+            result = detector._predict_sync(chunk)
 
         assert len(result) == 2
         names = {d.common_name for d in result}
@@ -115,31 +108,62 @@ class TestPredictDirect:
         assert "Great Tit" in names
         assert "Common Blackbird" not in names
 
-
-class TestPredictSubprocess:
-    def test_subprocess_fallback(self, tmp_path):
+    def test_predict_filters_by_species_list(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"
         birdnet_dir.mkdir()
-        (birdnet_dir / "analyze.py").touch()
         config = Config(birdnet_path=birdnet_dir, confidence_threshold=0.25)
 
-        csv_output = (
-            "Start (s)\tEnd (s)\tScientific name\tCommon name\tConfidence\n"
-            "0.0\t3.0\tErithacus rubecula\tEuropean Robin\t0.92\n"
-        )
+        labels = [
+            "Erithacus rubecula_European Robin",
+            "Parus major_Great Tit",
+        ]
+        predictions = np.array([[0.92, 0.75]])
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = predictions
+        mock_cfg = MagicMock()
+        mock_cfg.BIRDNET_SAMPLE_RATE = 48000
+        mock_cfg.SPECIES_LIST = ["Erithacus rubecula_European Robin"]
 
         with patch.object(Detector, "_load_model"):
             detector = Detector(config)
-            detector._use_subprocess = True
+            detector._birdnet_model = mock_model
+            detector._birdnet_cfg = mock_cfg
+            detector._labels = labels
 
-        with patch("biardtz.detector.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(stdout=csv_output)
-            chunk = np.zeros(144_000, dtype=np.float32)
-            result = detector._predict_subprocess(chunk)
+            chunk = np.zeros(48_000, dtype=np.float32)
+            result = detector._predict_sync(chunk)
 
         assert len(result) == 1
         assert result[0].common_name == "European Robin"
-        mock_run.assert_called_once()
+
+    def test_predict_resamples_from_16khz(self, tmp_path):
+        birdnet_dir = tmp_path / "BirdNET-Analyzer"
+        birdnet_dir.mkdir()
+        config = Config(birdnet_path=birdnet_dir, sample_rate=16000)
+
+        labels = ["Erithacus rubecula_European Robin"]
+        predictions = np.array([[0.92]])
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = predictions
+        mock_cfg = MagicMock()
+        mock_cfg.BIRDNET_SAMPLE_RATE = 48000
+        mock_cfg.SPECIES_LIST = []
+
+        with patch.object(Detector, "_load_model"):
+            detector = Detector(config)
+            detector._birdnet_model = mock_model
+            detector._birdnet_cfg = mock_cfg
+            detector._labels = labels
+
+            # 3 seconds at 16kHz = 48000 samples
+            chunk = np.zeros(48_000, dtype=np.float32)
+            detector._predict_sync(chunk)
+
+        # Model should receive resampled audio (48kHz = 144000 samples)
+        call_args = mock_model.predict.call_args[0][0]
+        assert len(call_args[0]) == 144_000
 
 
 class TestPredictAsync:
@@ -153,7 +177,7 @@ class TestPredictAsync:
 
         expected = [Detection("Robin", "Erithacus rubecula", 0.9)]
         with patch.object(detector, "_predict_sync", return_value=expected):
-            chunk = np.zeros(144_000, dtype=np.float32)
+            chunk = np.zeros(48_000, dtype=np.float32)
             result = asyncio.run(detector.predict(chunk))
 
         assert result == expected

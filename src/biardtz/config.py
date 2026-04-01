@@ -8,9 +8,9 @@ from pathlib import Path
 class Config:
     """All tunable parameters for the biardtz pipeline."""
 
-    sample_rate: int = 48_000
+    sample_rate: int = 16_000
     chunk_duration: float = 3.0
-    channels: int = 1
+    channels: int = 6
     device_index: int | None = None
     confidence_threshold: float = 0.25
     latitude: float = 51.50

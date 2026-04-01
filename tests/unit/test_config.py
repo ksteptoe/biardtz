@@ -8,7 +8,7 @@ from biardtz.config import Config
 class TestConfigDefaults:
     def test_default_sample_rate(self):
         cfg = Config()
-        assert cfg.sample_rate == 48_000
+        assert cfg.sample_rate == 16_000
 
     def test_default_chunk_duration(self):
         cfg = Config()
@@ -16,7 +16,7 @@ class TestConfigDefaults:
 
     def test_default_channels(self):
         cfg = Config()
-        assert cfg.channels == 1
+        assert cfg.channels == 6
 
     def test_default_device_index_is_none(self):
         cfg = Config()
@@ -54,7 +54,7 @@ class TestConfigDefaults:
 class TestConfigChunkSamples:
     def test_default_chunk_samples(self):
         cfg = Config()
-        assert cfg.chunk_samples == 144_000
+        assert cfg.chunk_samples == 48_000
 
     def test_custom_chunk_samples(self):
         cfg = Config(sample_rate=44_100, chunk_duration=5.0)

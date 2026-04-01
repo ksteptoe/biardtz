@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 import sys
-import tempfile
-from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -26,8 +23,9 @@ class Detector:
 
     def __init__(self, config: Config):
         self._config = config
-        self._predict_fn = None
-        self._use_subprocess = False
+        self._birdnet_cfg = None
+        self._birdnet_model = None
+        self._labels: list[str] = []
         self._load_model()
 
     def _load_model(self):
@@ -38,92 +36,78 @@ class Detector:
                 "Clone it as a sibling directory: git clone https://github.com/kahst/BirdNET-Analyzer.git"
             )
 
-        # Try direct import first
-        try:
-            if str(birdnet) not in sys.path:
-                sys.path.insert(0, str(birdnet))
-            from analyze import predict  # type: ignore[import-untyped]
+        if str(birdnet) not in sys.path:
+            sys.path.insert(0, str(birdnet))
 
-            self._predict_fn = predict
-            _logger.info("BirdNET loaded via direct import from %s", birdnet)
-        except (ImportError, ModuleNotFoundError) as exc:
-            _logger.warning("Direct BirdNET import failed (%s), falling back to subprocess", exc)
-            self._use_subprocess = True
+        try:
+            from birdnet_analyzer import config as birdnet_cfg  # type: ignore[import-untyped]
+            from birdnet_analyzer import model as birdnet_model  # type: ignore[import-untyped]
+            from birdnet_analyzer.species.utils import get_species_list  # type: ignore[import-untyped]
+            from birdnet_analyzer.utils import read_lines  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise ImportError(
+                f"Failed to import birdnet_analyzer from {birdnet}. "
+                "Ensure BirdNET-Analyzer dependencies are installed."
+            ) from exc
+
+        # Configure BirdNET globals
+        birdnet_cfg.MODEL_PATH = birdnet_cfg.BIRDNET_MODEL_PATH
+        birdnet_cfg.LABELS_FILE = birdnet_cfg.BIRDNET_LABELS_FILE
+        birdnet_cfg.SAMPLE_RATE = birdnet_cfg.BIRDNET_SAMPLE_RATE
+        birdnet_cfg.SIG_LENGTH = birdnet_cfg.BIRDNET_SIG_LENGTH
+        birdnet_cfg.LABELS = read_lines(birdnet_cfg.LABELS_FILE)
+        birdnet_cfg.LATITUDE = self._config.latitude
+        birdnet_cfg.LONGITUDE = self._config.longitude
+        birdnet_cfg.WEEK = self._config.week
+        birdnet_cfg.MIN_CONFIDENCE = self._config.confidence_threshold
+        birdnet_cfg.TFLITE_THREADS = self._config.num_threads
+
+        # Build species list from location
+        if self._config.latitude != -1 and self._config.longitude != -1:
+            birdnet_cfg.SPECIES_LIST = get_species_list(
+                self._config.latitude, self._config.longitude,
+                self._config.week, birdnet_cfg.LOCATION_FILTER_THRESHOLD,
+            )
+        else:
+            birdnet_cfg.SPECIES_LIST = []
+
+        # Load the TFLite model
+        birdnet_model.load_model()
+
+        self._birdnet_cfg = birdnet_cfg
+        self._birdnet_model = birdnet_model
+        self._labels = birdnet_cfg.LABELS
+        _logger.info(
+            "BirdNET loaded from %s (%d labels, %d local species)",
+            birdnet, len(self._labels), len(birdnet_cfg.SPECIES_LIST),
+        )
 
     def _predict_sync(self, audio_chunk: np.ndarray) -> list[Detection]:
-        if self._use_subprocess:
-            return self._predict_subprocess(audio_chunk)
-        return self._predict_direct(audio_chunk)
-
-    def _predict_direct(self, audio_chunk: np.ndarray) -> list[Detection]:
         cfg = self._config
-        results = self._predict_fn(
-            audio_chunk,
-            cfg.sample_rate,
-            lat=cfg.latitude,
-            lon=cfg.longitude,
-            week=cfg.week,
-            sensitivity=1.0,
-            num_threads=cfg.num_threads,
-        )
+        bcfg = self._birdnet_cfg
+
+        # BirdNET expects 48kHz; resample if our capture rate differs
+        if cfg.sample_rate != bcfg.BIRDNET_SAMPLE_RATE:
+            ratio = bcfg.BIRDNET_SAMPLE_RATE / cfg.sample_rate
+            target_len = int(len(audio_chunk) * ratio)
+            indices = np.linspace(0, len(audio_chunk) - 1, target_len).astype(int)
+            audio_chunk = audio_chunk[indices]
+
+        # BirdNET predict expects a batch: list of samples
+        prediction = self._birdnet_model.predict([audio_chunk])
+
         detections = []
-        for species, confidence in results.items():
-            if confidence >= cfg.confidence_threshold:
-                parts = species.split("_", 1)
-                sci = parts[0] if len(parts) > 0 else species
-                common = parts[1] if len(parts) > 1 else species
-                detections.append(Detection(common_name=common, sci_name=sci, confidence=confidence))
-        return detections
+        for pred in prediction:
+            for label, score in zip(self._labels, pred, strict=True):
+                if score >= cfg.confidence_threshold:
+                    if bcfg.SPECIES_LIST and label not in bcfg.SPECIES_LIST:
+                        continue
+                    # Labels are "SciName_CommonName"
+                    parts = label.split("_", 1)
+                    sci = parts[0] if len(parts) > 0 else label
+                    common = parts[1] if len(parts) > 1 else label
+                    detections.append(Detection(common_name=common, sci_name=sci, confidence=float(score)))
 
-    def _predict_subprocess(self, audio_chunk: np.ndarray) -> list[Detection]:
-        import wave
-
-        cfg = self._config
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-            with wave.open(tmp.name, "w") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(cfg.sample_rate)
-                wf.writeframes((audio_chunk * 32767).astype(np.int16).tobytes())
-
-        try:
-            analyze_py = cfg.birdnet_path / "analyze.py"
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(analyze_py),
-                    "--i",
-                    str(tmp_path),
-                    "--lat",
-                    str(cfg.latitude),
-                    "--lon",
-                    str(cfg.longitude),
-                    "--week",
-                    str(cfg.week),
-                    "--min_conf",
-                    str(cfg.confidence_threshold),
-                    "--rtype",
-                    "csv",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            return self._parse_csv_output(result.stdout)
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-    @staticmethod
-    def _parse_csv_output(csv_text: str) -> list[Detection]:
-        detections = []
-        for line in csv_text.strip().splitlines()[1:]:  # skip header
-            parts = line.split("\t")
-            if len(parts) >= 5:
-                sci_name = parts[2]
-                common_name = parts[3]
-                confidence = float(parts[4])
-                detections.append(Detection(common_name=common_name, sci_name=sci_name, confidence=confidence))
         return detections
 
     async def predict(self, audio_chunk: np.ndarray) -> list[Detection]:

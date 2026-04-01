@@ -45,7 +45,7 @@ The SQLite detection database should **not** live on the SD card. Even with an E
 
 ### On the Microphone
 
-BirdNET expects 48 kHz mono audio. The key requirement is an **array microphone with onboard beamforming** — this dramatically improves detection accuracy compared to a single omnidirectional mic by focusing on the signal direction and suppressing background noise in hardware before the audio even reaches Python.
+BirdNET expects 48 kHz mono audio internally, but handles resampling itself. The key requirement is an **array microphone with onboard beamforming** — this dramatically improves detection accuracy compared to a single omnidirectional mic by focusing on the signal direction and suppressing background noise in hardware before the audio even reaches Python.
 
 I originally specified the ReSpeaker 6+1 Mic Array but found it unavailable. The **ReSpeaker USB Mic Array v2.0 (4-mic)** is actually the successor and the better product — it uses the XMOS XVF-3000 chip with improved DSP algorithms. Fewer physical microphones, better audio quality.
 
@@ -54,12 +54,16 @@ Key properties:
 - Onboard AEC, beamforming, noise suppression, and Direction of Arrival (DoA)
 - Appears as a standard ALSA device — works transparently with `sounddevice`
 
+**Hardware constraints discovered during bring-up (2026-04-01):** The ReSpeaker has fixed parameters — 6 channels, 16000 Hz sample rate, S16_LE format only. These cannot be changed. The `audio_capture.py` module opens all 6 channels and extracts channel 0 for mono input. Config defaults are set accordingly (`sample_rate=16000`, `channels=6`).
+
 ### On BirdNET
 
 Cornell Lab's [BirdNET-Analyzer](https://github.com/kahst/BirdNET-Analyzer) is the open-source Python tool we use. Key things to understand:
 
 - It uses a **TensorFlow Lite** model (~1 GB on disk, ~100–150 MB in RAM)
-- It expects **3-second audio chunks** at **48 kHz mono**
+- Install via `pip install /path/to/BirdNET-Analyzer` — this pulls in TensorFlow, librosa, etc.
+- The new BirdNET-Analyzer (v2.4+) uses `birdnet_analyzer` as a Python package — the old `analyze.py` top-level script no longer exists. Our `detector.py` imports `birdnet_analyzer.model` and `birdnet_analyzer.config` directly.
+- It expects **3-second audio chunks** at **48 kHz mono** — our `detector.py` resamples from the ReSpeaker's 16 kHz to 48 kHz before inference
 - Setting your **latitude, longitude, and week number** dramatically improves accuracy — the model uses location and season to weight species priors
 - The confidence threshold is tunable — 0.25 is a reasonable starting point; lower catches more species with more false positives, higher is more conservative
 - Two firmware options on the ReSpeaker: processed (beamformed) audio on channel 0, or raw per-mic channels 1–4. We use channel 0.
@@ -328,7 +332,8 @@ sudo systemctl start biardtz
 
 | Parameter | Default | Notes |
 |-----------|---------|-------|
-| `sample_rate` | 48000 | BirdNET requirement — do not change |
+| `sample_rate` | 16000 | ReSpeaker hardware fixed at 16 kHz; BirdNET resamples internally |
+| `channels` | 6 | ReSpeaker hardware fixed at 6 channels; channel 0 extracted for mono |
 | `chunk_duration` | 3.0 | BirdNET window size in seconds |
 | `confidence_threshold` | 0.25 | Lower = more detections, more false positives |
 | `latitude` / `longitude` | 51.50 / -0.12 | **Set to your location** via `--lat` / `--lon` |

@@ -6,7 +6,7 @@ A step-by-step guide to getting biardtz running on a Raspberry Pi 4B for real-ti
 
 ### Hardware
 - Raspberry Pi 4B (2GB+ RAM)
-- USB microphone
+- ReSpeaker USB 4 Mic Array (UAC 1.0)
 - MicroSD card (32GB+) with Debian 13 (Trixie) or Raspberry Pi OS
 - SSD (recommended) for the detections database — avoids SD card wear
 - Power supply, ethernet cable (for initial setup)
@@ -123,13 +123,17 @@ git clone https://github.com/kahst/BirdNET-Analyzer.git
 ```bash
 conda activate biardtz
 cd ~/BirdNET-Analyzer
-pip install -e .
-pip install pyarrow
+pip install .
 ```
 
+This pulls in TensorFlow, librosa, and other dependencies. It will take several minutes on the Pi — TensorFlow is a large package.
+
 ```{note}
-`pyarrow` is not listed in BirdNET's dependencies but is required at runtime.
-The install may take several minutes on the Pi — it's a large package.
+If TensorFlow fails to install (e.g. on older Pi models with limited RAM), you can use the lighter `tflite-runtime` instead:
+
+    pip install tflite-runtime
+    pip install /path/to/BirdNET-Analyzer --no-deps
+    pip install librosa resampy tqdm pandas matplotlib kagglehub
 ```
 
 ### Test BirdNET
@@ -207,23 +211,50 @@ If you skip the SSD, override the database path when running:
 biardtz --db-path ~/detections.db
 ```
 
-## Step 8: Check the USB microphone
+## Step 8: Set up the ReSpeaker USB 4-Mic Array
 
-Plug in your USB microphone and check it's detected:
+Plug in the ReSpeaker USB 4 Mic Array and verify it's detected:
 
 ```bash
+lsusb | grep -i seed
 arecord -l
 ```
 
-You should see your microphone listed with a card and device number.
+You should see `ReSpeaker 4 Mic Array (UAC1.0)` listed as a capture device.
+
+### Hardware constraints
+
+The ReSpeaker has fixed hardware parameters that cannot be changed:
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Channels | 6 | Fixed — cannot do mono at hardware level |
+| Sample rate | 16000 Hz | Fixed — does not support 48000 Hz |
+| Format | S16_LE | Only supported format |
+
+You can verify these with:
+
+```bash
+arecord -D hw:3,0 --dump-hw-params
+```
+
+> **Note:** The card number (3 in `hw:3,0`) may vary depending on other USB devices. Check `arecord -l` for the actual number.
+
+The `audio_capture.py` module handles this automatically — it opens all 6 channels and extracts channel 0 (mono). The Config defaults are set to `sample_rate=16000` and `channels=6`.
 
 ### Test recording (5 seconds)
 
 ```bash
-arecord -d 5 -f cd test.wav && aplay test.wav
+arecord -D hw:3,0 -c 6 -r 16000 -f S16_LE -d 5 /tmp/test.wav
 ```
 
-If you hear your recording played back, the microphone is working.
+Then check the sounddevice device index:
+
+```bash
+python -c "import sounddevice; print(sounddevice.query_devices())"
+```
+
+Note the index for the ReSpeaker (typically 1) — you'll use this with `--device`.
 
 ## Step 9: Run biardtz
 
@@ -346,8 +377,14 @@ Ensure it's cloned at `~/BirdNET-Analyzer/` (sibling to `~/biardtz/`), or pass `
 Install it in the conda env: `conda activate biardtz && pip install pyarrow`
 
 ### No audio device found
-- Check `arecord -l` — is the USB mic listed?
-- Try specifying the device explicitly: `--device 1` (use the index from `arecord -l`)
+- Check `arecord -l` — is the ReSpeaker listed?
+- Try specifying the device explicitly: `--device 1` (use the index from `sounddevice.query_devices()`)
+- If the ReSpeaker doesn't appear in `lsusb`, try a different USB port
+
+### "Channels count non available" or "invalid argument"
+- The ReSpeaker requires 6 channels at 16000 Hz — these are fixed in hardware
+- Ensure `Config` has `channels=6` and `sample_rate=16000`
+- Check with `arecord -D hw:X,0 --dump-hw-params` (replace X with your card number)
 
 ### Database permission errors
 - Check the mount: `mount | grep ssd`

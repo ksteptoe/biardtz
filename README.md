@@ -6,7 +6,7 @@
 
 > Real-time bird identification on Raspberry Pi using BirdNET.
 
-A passive, always-on bird identification station that listens via an array microphone, identifies species in real time using Cornell Lab's BirdNET acoustic AI model, and logs every detection to a SQLite database. Designed for Raspberry Pi 5 deployment.
+A passive, always-on bird identification station that listens via a ReSpeaker USB 4-Mic Array, identifies species in real time using Cornell Lab's BirdNET acoustic AI model, and logs every detection to a SQLite database. Designed for Raspberry Pi 5 deployment.
 
 See the full [Build Log](docs/build_log.md) for hardware details, architecture, and setup instructions.
 
@@ -93,7 +93,7 @@ tests/
 **Current state:** Core modules are implemented — config, audio capture, BirdNET detector, async SQLite logger, Rich dashboard, Click CLI, and async orchestrator. The package installs and exposes the `biardtz` CLI entry point.
 
 **What needs doing next:**
-- Testing on Raspberry Pi 5 hardware with the ReSpeaker mic array
+- ~~Testing on Raspberry Pi 5 hardware with the ReSpeaker mic array~~ Done (tested on Pi 4B — ReSpeaker fixed at 6ch/16kHz/S16_LE)
 - systemd service file for auto-start on boot
 - Tuning confidence thresholds against local species
 - Phase 2: bat detection with BatDetect2
