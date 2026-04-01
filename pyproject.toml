@@ -60,7 +60,8 @@ minversion = "8.0"
 addopts = "-ra --disable-warnings"
 testpaths = ["tests"]
 markers = [
-  "integration: filesystem/external-tool tests"
+  "integration: filesystem/external-tool tests",
+  "live: system tests requiring Pi hardware"
 ]
 
 [tool.coverage.run]

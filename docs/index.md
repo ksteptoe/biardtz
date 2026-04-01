@@ -22,6 +22,7 @@ Deployment Guide <deployment_guide>
 Pi Network Setup <pi_network_setup>
 Build Log <build_log>
 Asyncio Guide <asyncio_guide>
+Test Plan <test_plan>
 Contributions & Help <contributing>
 License <license>
 Authors <authors>
