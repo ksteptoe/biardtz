@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(make:*)",
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(.venv/bin/pip:*)",
+      "Bash(.venv/bin/ruff:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(ls:*)",
+      "Bash(arecord:*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "Skill(update-config)"
+    ]
+  }
+}

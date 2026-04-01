@@ -1,32 +1,52 @@
 # Test Plan
 
-This document describes the testing strategy for biardtz, covering the existing mocked test suite and the planned live/system tests that exercise real hardware on the Raspberry Pi.
+This document describes the testing strategy for biardtz, covering the mocked test suite and the live/system tests that exercise real hardware on the Raspberry Pi.
 
-## Current State
+## Test Suite Overview
 
-The project has **68 unit and integration tests** achieving **94% code coverage**. All tests are fully mocked — they run without audio hardware or BirdNET models, making them suitable for CI.
+| Directory | Tests | Scope | Hardware needed |
+|---|---|---|---|
+| `tests/unit/` | 60 | Individual module behaviour (Config, Detector, Logger, Dashboard, CLI, etc.) | No |
+| `tests/integration/` | 8 | Cross-module pipeline with real SQLite, mocked audio/inference | No |
+| `tests/system/` | 8 | Real hardware: mic, BirdNET model, full pipeline | Yes |
 
-| Directory | Scope | Hardware needed |
-|---|---|---|
-| `tests/unit/` | Individual module behaviour (Config, Detector, Logger, Dashboard, CLI, etc.) | No |
-| `tests/integration/` | Cross-module pipeline with real SQLite, mocked audio/inference | No |
-
-### Running existing tests
+### Running tests
 
 ```bash
 make test          # Cached unit + integration (skips if unchanged)
 make test-all      # All non-live tests, with coverage
+make test-live     # Live/system tests only (requires Pi hardware)
+
+# Or directly:
+.venv/bin/pytest tests/system/ -v -m live --timeout=180
 ```
 
-## Planned System Tests
+## System Tests
 
 System tests exercise real hardware and the real BirdNET model on the Pi. They are marked `@pytest.mark.live` and skipped automatically when hardware is absent.
 
 ### Prerequisites
 
 - Raspberry Pi 5 with a **ReSpeaker 4-Mic Array** (USB, ALSA card 2)
-- **BirdNET-Analyzer** installed at `../BirdNET-Analyzer/`
+- **BirdNET-Analyzer** pip-installed (`pip install birdnet_analyzer`) with model checkpoints downloaded
 - `libportaudio2` system package
+- **flatbuffers >= 25.9.23** (see [Known Issues](#known-issues) below)
+
+### BirdNET model setup
+
+BirdNET-Analyzer ships without model weights. After pip install, download them:
+
+```python
+from birdnet_analyzer.utils import ensure_model_exists
+ensure_model_exists()
+```
+
+If using a sibling clone of BirdNET-Analyzer (at `../BirdNET-Analyzer/`), the checkpoints directory must also be present there. Symlink from the pip-installed location if needed:
+
+```bash
+ln -s .venv/lib/python3.12/site-packages/birdnet_analyzer/checkpoints \
+      ../BirdNET-Analyzer/birdnet_analyzer/checkpoints
+```
 
 ### Test files
 
@@ -34,64 +54,69 @@ System tests exercise real hardware and the real BirdNET model on the Pi. They a
 
 Root-level conftest providing:
 
-- A real `Config` fixture pointing at the ReSpeaker device and BirdNET path
-- Hardware detection via `sounddevice.query_devices()` with automatic skip when no capture device is found
-- `pytest.importorskip("sounddevice")` guard for headless CI environments
-- `tmp_path`-based `db_path` for test isolation
+- **`live_config`** fixture — real `Config` pointing at the ReSpeaker device and BirdNET path, with `tmp_path` DB
+- **Hardware auto-detection** via `sounddevice.query_devices()` — skips live tests when no capture device found
+- **`pytest_collection_modifyitems` hook** — auto-skips tests based on which hardware they need (audio, BirdNET, or both)
 
 #### `tests/system/conftest.py` — session-scoped fixtures
 
-- **`detector`** — real `Detector` instance, session-scoped (TFLite model load takes ~2 s, should not repeat per test)
-- **`logger`** — real `DetectionLogger` with per-test `tmp_path` database
+- **`real_detector`** — real `Detector` instance, session-scoped (TFLite model load takes ~2 s). Skips gracefully on `ImportError` or `OSError`.
+- **`real_logger`** — real `DetectionLogger` with per-test `tmp_path` database
 
-#### `tests/system/test_audio_smoke.py`
+#### `tests/system/test_audio_smoke.py` (2 tests)
 
-Records 3 seconds of audio from the ReSpeaker and asserts:
+- Records 3 s from the ReSpeaker via `sd.rec()` — asserts numpy shape and non-silence (RMS > threshold)
+- Opens an `InputStream` with callback — asserts callback fires and delivers multi-channel data
 
-- Result is a numpy array with the expected shape (channels × samples)
-- Audio is non-silent (RMS above a noise-floor threshold)
+#### `tests/system/test_detector_real.py` (3 tests)
 
-#### `tests/system/test_detector_real.py`
+- Feeds synthetic noise to real BirdNET model — asserts `list[Detection]` with valid structure
+- Feeds silence — asserts valid return (no crash)
+- Verifies 16 kHz→48 kHz resampling path doesn't error
 
-Feeds a 3-second audio buffer (from the mic or a synthetic chirp) to the real BirdNET model and asserts:
+**No species-specific assertions** — ambient sound is unpredictable.
 
-- Returns `list[Detection]`
-- Each element has `common_name` (str), `sci_name` (str), and `confidence` in [0, 1]
-- **No species-specific assertions** — ambient sound is unpredictable
+#### `tests/system/test_pipeline_live.py` (1 test)
 
-#### `tests/system/test_pipeline_live.py`
+End-to-end: real audio → real inference → real SQLite. Records 2 chunks (~6 s) and asserts:
 
-End-to-end test: real audio → real inference → real SQLite. Runs for ~6 seconds (2 chunks) and asserts:
+- Database file created
+- `session_summary()` returns a valid statistics string with Session/Detections/Unique species
 
-- Database file is created with the correct schema
-- `session_summary()` returns a valid statistics string
-- Row count ≥ 0 (birds may or may not be present)
-
-#### `tests/system/test_cli_smoke.py`
+#### `tests/system/test_cli_smoke.py` (2 tests)
 
 - `biardtz --help` exits with code 0
-- A short live run (~5 s) terminated via SIGINT exits cleanly
+- `biardtz --version` exits with code 0
 
 ### Key design patterns
 
 - **`@pytest.mark.live`** separates hardware tests from the mocked suite
-- **Session-scoped model loading** avoids repeated 2 s TFLite loads
+- **Session-scoped model loading** avoids repeated ~2 s TFLite loads
 - **Generous timeouts** (`--timeout=180`) accommodate Pi I/O and inference latency
 - **Structural assertions only** — validate types, shapes, and schemas, never specific species
-- **Graceful skip** when hardware is absent, so CI stays green
+- **Graceful skip** when hardware or model is absent, so CI stays green
 
-### Running live tests
+## Known Issues
 
-```bash
-make test-live     # Runs only @live tests with 180 s timeout
+### flatbuffers version conflict
 
-# Or directly:
-.venv/bin/pytest tests/system/ -v -m live --timeout=180
+BirdNET-Analyzer depends on TensorFlow, which requires `flatbuffers >= 25.9.23`. However, pip may resolve to the ancient date-based version `20181003210633` (from 2018) because its version number is numerically larger than `25.x.y`.
+
+This version uses the `imp` module, which was removed in Python 3.12, causing:
+
+```
+ModuleNotFoundError: No module named 'imp'
 ```
 
-## Configuration change
+**Fix:** Force-install a modern version:
 
-The `live` marker must be registered in `pyproject.toml`:
+```bash
+pip install 'flatbuffers==25.12.19'
+```
+
+### pyproject.toml marker registration
+
+The `live` marker is registered in `pyproject.toml`:
 
 ```toml
 markers = [

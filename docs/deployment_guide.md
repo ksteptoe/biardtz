@@ -128,6 +128,29 @@ pip install .
 
 This pulls in TensorFlow, librosa, and other dependencies. It will take several minutes on the Pi — TensorFlow is a large package.
 
+### Fix flatbuffers version
+
+pip may install an ancient date-based version of flatbuffers (`20181003210633`) that is incompatible with Python 3.12+. Force-install a modern version:
+
+```bash
+pip install 'flatbuffers==25.12.19'
+```
+
+### Download model checkpoints
+
+BirdNET ships without model weights. Download them after install:
+
+```bash
+python -c "from birdnet_analyzer.utils import ensure_model_exists; ensure_model_exists()"
+```
+
+Then symlink the checkpoints into the cloned repo so the sibling-directory import path can find them:
+
+```bash
+ln -s $(python -c "import birdnet_analyzer, os; print(os.path.join(os.path.dirname(birdnet_analyzer.__file__), 'checkpoints'))") \
+      ~/BirdNET-Analyzer/birdnet_analyzer/checkpoints
+```
+
 ```{note}
 If TensorFlow fails to install (e.g. on older Pi models with limited RAM), you can use the lighter `tflite-runtime` instead:
 
