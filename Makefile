@@ -65,7 +65,8 @@ SYSTEM_DIR := tests/system  # live/system tests (opt-in, uncached)
         test test-all test-live test-full clean-tests \
         build upload version fetch-tags changelog changelog-md \
         release-show release release-patch release-minor release-major \
-        clean run-cli check-clean verify
+        clean run-cli check-clean \
+        verify verify-env verify-hw verify-audio verify-model verify-e2e
 
 help:
 	@echo "Common targets:"
@@ -87,7 +88,12 @@ help:
 	@echo "  make release-show        - show scm ver, installed ver, last Git tag"
 	@echo "  make release             - run tests, show changelog and tag (KIND=patch|minor|major)"
 	@echo "  make clean               - remove build artifacts"
-	@echo "  make verify              - verify installation (mic, audio, CLI)"
+	@echo "  make verify-env          - check venv, python version, key imports"
+	@echo "  make verify-hw           - check mic hardware (ALSA + sounddevice)"
+	@echo "  make verify-audio        - capture 3s audio test"
+	@echo "  make verify-model        - load BirdNET model"
+	@echo "  make verify-e2e          - end-to-end 10s run with temp db"
+	@echo "  make verify              - run all verification checks"
 	@echo "  make run-cli             - run via python -m package (pass CLI_ARGS=...)"
 	@echo ""
 	@echo "Tip (Windows/OneDrive permission issues):"
@@ -330,9 +336,27 @@ release: fetch-tags $(ENV_STAMP)
 
 
 # -----------------------------------------------------------------------------#
-# Installation verification
+# Installation verification (progressive stages)
+verify-env:
+	@if [ ! -x "$(PY)" ]; then \
+	  echo "FAIL: $(PY) not found. Run 'make bootstrap' first."; exit 1; \
+	fi
+	"$(PY)" scripts/verify_install.py env
+
+verify-hw: $(ENV_STAMP)
+	"$(PY)" scripts/verify_install.py hardware
+
+verify-audio: $(ENV_STAMP)
+	"$(PY)" scripts/verify_install.py audio
+
+verify-model: $(ENV_STAMP)
+	"$(PY)" scripts/verify_install.py model
+
+verify-e2e: $(ENV_STAMP)
+	"$(PY)" scripts/verify_install.py e2e
+
 verify: $(ENV_STAMP)
-	"$(PY)" scripts/verify_install.py
+	"$(PY)" scripts/verify_install.py all
 
 # -----------------------------------------------------------------------------#
 # CLI convenience

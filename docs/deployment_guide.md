@@ -281,36 +281,169 @@ Note the index for the ReSpeaker (typically 1) — you'll use this with `--devic
 
 ## Step 9: Verify the installation
 
-Before running biardtz for real, walk through these checks to confirm that the hardware, audio stack, and software are all working correctly.
+Before running biardtz for real, use the progressive verification system to confirm each layer independently. The idea is simple: test the Python environment first, then hardware, then audio capture, then the BirdNET model, and finally the full end-to-end pipeline. If something fails at an early stage, you know exactly where the problem is without wading through later errors.
 
-### 1. Verify mic detection
+The verification script lives at `scripts/verify_install.py` and is exposed through Makefile targets. You can run individual stages or all of them at once.
+
+### Progressive verification stages
+
+Work through these in order. Each stage builds on the previous one.
+
+#### 1. Environment (`make verify-env`)
+
+Checks that Python 3.12+ is available, the virtualenv is active, and all required packages can be imported (click, sounddevice, numpy, aiosqlite, rich, keras, biardtz).
 
 ```bash
-arecord -l
+make verify-env
 ```
 
-You should see the ReSpeaker listed as a capture device, for example:
+Expected output:
 
 ```
-card 2: ArrayUAC10 [ReSpeaker 4 Mic Array (UAC1.0)], device 0: USB Audio [USB Audio]
-  Subdevices: 1/1
-  Subdevice #0: subdevice #0
+biardtz verification — group: env
+
+============================================================
+  Python environment
+============================================================
+  Python:     /home/kevin/miniforge3/envs/biardtz/bin/python
+  Version:    3.12.x
+  PASS: Python >= 3.12
+  Virtualenv: Yes
+  import click: PASS
+  import sounddevice: PASS
+  import numpy: PASS
+  import aiosqlite: PASS
+  import rich: PASS
+  Importing keras (may take a moment)...
+  import keras: PASS
+  import biardtz: PASS (v0.x.x)
 ```
 
-The card number may differ depending on other USB devices. If the ReSpeaker does not appear, try a different USB port or check `lsusb | grep -i seed`.
+If this fails, run `pip install -e ".[dev]"` in the correct conda/venv environment.
 
-All four checks can be run at once with:
+#### 2. Hardware (`make verify-hw`)
+
+Checks that the ReSpeaker USB 4-Mic Array is visible to ALSA (`arecord -l`) and to sounddevice (`sd.query_devices()`).
+
+```bash
+make verify-hw
+```
+
+Expected output includes the ReSpeaker listed as a capture device and a sounddevice input device with `max_input_channels > 0`.
+
+If the mic is not detected:
+- Try a different USB port
+- Check `lsusb | grep -i seed` to confirm the device is connected
+- Ensure `libportaudio2` is installed
+
+#### 3. Audio capture (`make verify-audio`)
+
+Records 3 seconds of audio from device 0 at its native sample rate (16000 Hz for the ReSpeaker) and checks that the signal is not silent.
+
+```bash
+make verify-audio
+```
+
+Expected output:
+
+```
+biardtz verification — group: audio
+
+============================================================
+  Audio capture test (3 seconds)
+============================================================
+Recording 3s at 16000 Hz ...
+Samples: 48000  Peak: 0.0312  RMS: 0.000482
+PASS: audio capture working
+```
+
+If silence is detected (peak = 0), verify the ReSpeaker is device 0 with `python -c "import sounddevice; print(sounddevice.query_devices())"`.
+
+#### 4. BirdNET model (`make verify-model`)
+
+Checks that the BirdNET-Analyzer directory exists at the configured path, imports the `birdnet_analyzer` package, loads species labels, and loads the TFLite model into memory. Model loading takes 10-15 seconds on the Pi.
+
+```bash
+make verify-model
+```
+
+Expected output:
+
+```
+biardtz verification — group: model
+
+============================================================
+  BirdNET model
+============================================================
+  BirdNET path: /home/kevin/BirdNET-Analyzer
+  PASS: directory exists
+  PASS: birdnet_analyzer imports OK
+  Labels loaded: 6522
+  Loading model (may take 10-15s on Pi)...
+  PASS: model loaded
+```
+
+If the directory is not found, clone it: `git clone https://github.com/kahst/BirdNET-Analyzer.git ~/BirdNET-Analyzer`
+
+#### 5. End-to-end (`make verify-e2e`)
+
+Runs the full biardtz pipeline for 10 seconds with a temporary database, then sends SIGTERM and checks for a clean shutdown. This confirms that audio capture, BirdNET inference, and database logging all work together.
+
+```bash
+make verify-e2e
+```
+
+The command runs `biardtz --db-path /tmp/biardtz_verify.db --no-dashboard -v` for 10 seconds, then verifies:
+- The process exited cleanly (exit code 0 or -15 for SIGTERM)
+- The database file was created at `/tmp/biardtz_verify.db`
+
+The temporary database is cleaned up automatically after the check.
+
+### Run all stages at once
+
+To run every stage in sequence:
 
 ```bash
 make verify
 ```
 
-This runs `scripts/verify_install.py`, which tests ALSA detection, sounddevice query, a 3-second audio capture (at the device's native sample rate — 16000 Hz for the ReSpeaker), and the CLI entry point. You should see PASS for all four checks.
+This executes env, hardware, audio, model, cli, and e2e in order and prints a summary at the end:
 
-If any check fails, see the output for details. Common issues:
+```
+============================================================
+  SUMMARY
+============================================================
+  PASS  env
+  PASS  alsa
+  PASS  sounddevice
+  PASS  audio_capture
+  PASS  model
+  PASS  cli
+  PASS  e2e
+
+All checks passed.
+```
+
+### Debugging progression
+
+If `make verify` fails, use the individual targets to isolate the problem:
+
+1. `make verify-env` -- if this fails, fix the Python environment first
+2. `make verify-hw` -- if this fails, the mic is not detected (USB/driver issue)
+3. `make verify-audio` -- if this fails, the mic is detected but not capturing (permissions, device index)
+4. `make verify-model` -- if this fails, BirdNET is not installed or the model files are missing
+5. `make verify-e2e` -- if this fails, something in the pipeline integration is broken
+
+### Automated tests
+
+Corresponding pytest tests exist at `tests/system/test_verify_install.py`, marked with `@pytest.mark.live`. These run the same checks in a pytest harness and are included in `make test-live` and `make test-full`.
+
+### Common issues
+
 - **No capture device**: try a different USB port or check `lsusb | grep -i seed`
 - **Silence detected**: check `python -c "import sounddevice; print(sounddevice.query_devices())"` and verify the ReSpeaker is device 0
 - **CLI not found**: reinstall with `pip install -e ".[dev]"`
+- **Model load fails**: ensure BirdNET checkpoints are downloaded (see Step 5)
 
 ## Step 10: Run biardtz
 

@@ -45,6 +45,21 @@ make format     # Auto-fix lint issues and format code
 make docs       # Build Sphinx/MyST docs to docs/_build/html
 ```
 
+### Installation Verification (Pi hardware)
+
+On the Raspberry Pi with the ReSpeaker mic attached, verify each layer of the stack progressively:
+
+```bash
+make verify-env    # Python, venv, package imports
+make verify-hw     # ALSA and sounddevice mic detection
+make verify-audio  # 3-second audio capture test
+make verify-model  # BirdNET model load
+make verify-e2e    # Full 10-second pipeline run
+make verify        # All of the above in sequence
+```
+
+See the [Deployment Guide](docs/deployment_guide.md#step-9-verify-the-installation) for details on each stage.
+
 ### Releasing
 
 Versions are derived from git tags via setuptools-scm. After every fix:
