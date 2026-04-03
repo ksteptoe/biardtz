@@ -279,7 +279,40 @@ python -c "import sounddevice; print(sounddevice.query_devices())"
 
 Note the index for the ReSpeaker (typically 1) — you'll use this with `--device`.
 
-## Step 9: Run biardtz
+## Step 9: Verify the installation
+
+Before running biardtz for real, walk through these checks to confirm that the hardware, audio stack, and software are all working correctly.
+
+### 1. Verify mic detection
+
+```bash
+arecord -l
+```
+
+You should see the ReSpeaker listed as a capture device, for example:
+
+```
+card 2: ArrayUAC10 [ReSpeaker 4 Mic Array (UAC1.0)], device 0: USB Audio [USB Audio]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+```
+
+The card number may differ depending on other USB devices. If the ReSpeaker does not appear, try a different USB port or check `lsusb | grep -i seed`.
+
+All four checks can be run at once with:
+
+```bash
+make verify
+```
+
+This runs `scripts/verify_install.py`, which tests ALSA detection, sounddevice query, a 3-second audio capture (at the device's native sample rate — 16000 Hz for the ReSpeaker), and the CLI entry point. You should see PASS for all four checks.
+
+If any check fails, see the output for details. Common issues:
+- **No capture device**: try a different USB port or check `lsusb | grep -i seed`
+- **Silence detected**: check `python -c "import sounddevice; print(sounddevice.query_devices())"` and verify the ReSpeaker is device 0
+- **CLI not found**: reinstall with `pip install -e ".[dev]"`
+
+## Step 10: Run biardtz
 
 ### Basic usage
 
@@ -313,7 +346,7 @@ biardtz \
 | `--dashboard/--no-dashboard` | enabled | Rich live terminal dashboard |
 | `-v` / `-vv` | warnings only | Verbosity: `-v` info, `-vv` debug |
 
-## Step 10: Run as a service (optional)
+## Step 11: Run as a service (optional)
 
 To run biardtz automatically on boot, create a systemd service:
 

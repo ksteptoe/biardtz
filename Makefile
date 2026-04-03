@@ -65,7 +65,7 @@ SYSTEM_DIR := tests/system  # live/system tests (opt-in, uncached)
         test test-all test-live test-full clean-tests \
         build upload version fetch-tags changelog changelog-md \
         release-show release release-patch release-minor release-major \
-        clean run-cli check-clean
+        clean run-cli check-clean verify
 
 help:
 	@echo "Common targets:"
@@ -87,6 +87,7 @@ help:
 	@echo "  make release-show        - show scm ver, installed ver, last Git tag"
 	@echo "  make release             - run tests, show changelog and tag (KIND=patch|minor|major)"
 	@echo "  make clean               - remove build artifacts"
+	@echo "  make verify              - verify installation (mic, audio, CLI)"
 	@echo "  make run-cli             - run via python -m package (pass CLI_ARGS=...)"
 	@echo ""
 	@echo "Tip (Windows/OneDrive permission issues):"
@@ -327,6 +328,11 @@ release: fetch-tags $(ENV_STAMP)
 	  exit 1; \
 	fi
 
+
+# -----------------------------------------------------------------------------#
+# Installation verification
+verify: $(ENV_STAMP)
+	"$(PY)" scripts/verify_install.py
 
 # -----------------------------------------------------------------------------#
 # CLI convenience
