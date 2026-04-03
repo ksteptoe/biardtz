@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 
-import numpy as np
 import pytest
 import sounddevice as sd
 

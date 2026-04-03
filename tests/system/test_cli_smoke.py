@@ -1,10 +1,8 @@
 """CLI smoke tests — verify the entry point works."""
 from __future__ import annotations
 
-import signal
 import subprocess
 import sys
-import time
 
 import pytest
 
