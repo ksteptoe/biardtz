@@ -106,7 +106,7 @@ class Detector:
                     parts = label.split("_", 1)
                     sci = parts[0] if len(parts) > 0 else label
                     common = parts[1] if len(parts) > 1 else label
-                    detections.append(Detection(common_name=common, sci_name=sci, confidence=float(score)))
+                    detections.append(Detection(common_name=common, sci_name=sci, confidence=min(float(score), 1.0)))
 
         return detections
 
