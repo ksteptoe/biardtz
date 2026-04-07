@@ -38,6 +38,20 @@ class DetectionLogger:
         self._config.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._config.db_path)
         await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA busy_timeout=5000")
+        await self._db.execute("PRAGMA synchronous=NORMAL")
+
+        # Non-blocking integrity check — warn but don't abort
+        try:
+            cursor = await self._db.execute("PRAGMA integrity_check")
+            result = await cursor.fetchone()
+            if result and result[0] != "ok":
+                _logger.warning("Database integrity check failed: %s", result[0])
+            else:
+                _logger.debug("Database integrity check passed")
+        except Exception:
+            _logger.warning("Could not run integrity check", exc_info=True)
+
         await self._db.executescript(_SCHEMA)
         await self._db.commit()
         _logger.info("Database ready at %s (WAL mode)", self._config.db_path)

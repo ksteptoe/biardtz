@@ -45,6 +45,23 @@ class TestInitDb:
         finally:
             await logger.close()
 
+    def test_sets_pragmas(self, config, logger):
+        asyncio.run(self._run_pragmas(logger))
+
+    @staticmethod
+    async def _run_pragmas(logger):
+        await logger.init_db()
+        try:
+            cursor = await logger._db.execute("PRAGMA busy_timeout")
+            row = await cursor.fetchone()
+            assert row[0] == 5000
+
+            cursor = await logger._db.execute("PRAGMA synchronous")
+            row = await cursor.fetchone()
+            assert row[0] == 1  # NORMAL = 1
+        finally:
+            await logger.close()
+
     def test_creates_parent_directories(self, tmp_path):
         db_path = tmp_path / "sub" / "dir" / "test.db"
         config = Config(db_path=db_path)

@@ -66,7 +66,8 @@ SYSTEM_DIR := tests/system  # live/system tests (opt-in, uncached)
         build upload version fetch-tags changelog changelog-md \
         release-show release release-patch release-minor release-major \
         clean run-cli check-clean \
-        verify verify-env verify-hw verify-audio verify-model verify-e2e
+        verify verify-env verify-hw verify-audio verify-model verify-e2e \
+        db-backup db-export db-vacuum
 
 help:
 	@echo "Common targets:"
@@ -96,6 +97,11 @@ help:
 	@echo "  make verify-e2e          - end-to-end 10s run with temp db"
 	@echo "  make verify              - run all verification checks"
 	@echo "  make run-cli             - run via python -m package (pass CLI_ARGS=...)"
+	@echo ""
+	@echo "Database maintenance:"
+	@echo "  make db-backup           - back up SQLite db to SD card"
+	@echo "  make db-export           - export detections to CSV"
+	@echo "  make db-vacuum           - reclaim unused space in database"
 	@echo ""
 	@echo "Tip (Windows/OneDrive permission issues):"
 	@echo '  make bootstrap VENV="$$HOME/.venvs/$(PKG)"'
@@ -367,6 +373,23 @@ verify: $(ENV_STAMP)
 CLI_ARGS ?=
 run-cli: $(ENV_STAMP)
 	"$(PY)" -m $(PKG) $(CLI_ARGS)
+
+# -----------------------------------------------------------------------------#
+# Database maintenance
+DB_PATH      ?= /mnt/ssd/detections.db
+BACKUP_DIR   ?= $(HOME)/backups/biardtz
+BACKUP_KEEP  ?= 7
+EXPORT_FILE  ?= detections.csv
+
+db-backup: $(ENV_STAMP)
+	"$(PY)" scripts/db_backup.py --db-path "$(DB_PATH)" --backup-dir "$(BACKUP_DIR)" --keep $(BACKUP_KEEP)
+
+db-export: $(ENV_STAMP)
+	"$(PY)" scripts/db_export_csv.py --db-path "$(DB_PATH)" --output "$(EXPORT_FILE)"
+
+db-vacuum: $(ENV_STAMP)
+	@echo "Running VACUUM on $(DB_PATH) (biardtz should be stopped)..."
+	"$(PY)" -c "import sqlite3; c=sqlite3.connect('$(DB_PATH)'); c.execute('VACUUM'); c.close(); print('VACUUM complete')"
 
 # -----------------------------------------------------------------------------#
 clean:

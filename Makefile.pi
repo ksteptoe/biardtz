@@ -45,7 +45,8 @@ STAMP_BIARDTZ   := $(STAMPS)/biardtz.done
 # ---- Phony targets ----------------------------------------------------------
 .PHONY: help setup system-packages install-conda create-env \
         install-birdnet install-biardtz test test-birdnet test-biardtz \
-        run service clean status check-mic
+        run service clean status check-mic \
+        db-backup db-export db-vacuum cron-install
 
 help:
 	@echo ""
@@ -74,6 +75,10 @@ help:
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    make -f Makefile.pi clean              Remove stamps (re-run setup)"
+	@echo "    make -f Makefile.pi db-backup          Back up database to SD card"
+	@echo "    make -f Makefile.pi db-export          Export detections to CSV"
+	@echo "    make -f Makefile.pi db-vacuum          VACUUM database (stops service)"
+	@echo "    make -f Makefile.pi cron-install       Install daily backup cron job"
 	@echo ""
 
 $(STAMPS):
@@ -281,6 +286,35 @@ service:
 
 status:
 	sudo systemctl status biardtz
+
+# =============================================================================
+# Database Maintenance
+# =============================================================================
+DB_BACKUP_DIR   ?= $(HOME_DIR)/backups/biardtz
+DB_BACKUP_KEEP  ?= 7
+
+db-backup: $(STAMP_BIARDTZ)
+	$(CONDA) run -n $(CONDA_ENV) python "$(BIARDTZ_DIR)/scripts/db_backup.py" \
+		--db-path "$(DB_PATH)" --backup-dir "$(DB_BACKUP_DIR)" --keep $(DB_BACKUP_KEEP)
+
+db-export: $(STAMP_BIARDTZ)
+	$(CONDA) run -n $(CONDA_ENV) python "$(BIARDTZ_DIR)/scripts/db_export_csv.py" \
+		--db-path "$(DB_PATH)" --output "$(HOME_DIR)/detections.csv"
+
+db-vacuum:
+	@echo "Stopping biardtz service before VACUUM..."
+	sudo systemctl stop biardtz || true
+	$(CONDA) run -n $(CONDA_ENV) python -c \
+		"import sqlite3; c=sqlite3.connect('$(DB_PATH)'); c.execute('VACUUM'); c.close(); print('VACUUM complete')"
+	sudo systemctl start biardtz || true
+	@echo "biardtz restarted"
+
+cron-install:
+	@(crontab -l 2>/dev/null | grep -v 'db_backup.py'; \
+	  echo "0 3 * * * $(CONDA) run -n $(CONDA_ENV) python $(BIARDTZ_DIR)/scripts/db_backup.py >> $(DB_BACKUP_DIR)/backup.log 2>&1") \
+	| crontab -
+	@echo "Daily backup cron job installed (03:00 UTC)"
+	@crontab -l | grep db_backup
 
 # =============================================================================
 # Clean
