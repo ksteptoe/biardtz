@@ -50,10 +50,6 @@ class TestCliRun:
         runner.invoke(
             cli,
             [
-                "--lat",
-                "40.0",
-                "--lon",
-                "-74.0",
                 "--threshold",
                 "0.5",
                 "--db-path",

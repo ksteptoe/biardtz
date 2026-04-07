@@ -33,8 +33,8 @@ def _setup_logging(verbosity: int) -> None:
 
 @click.command()
 @click.version_option(__version__, "--version")
-@click.option("--lat", type=float, default=51.50, show_default=True, help="Latitude for species filtering")
-@click.option("--lon", type=float, default=-0.12, show_default=True, help="Longitude for species filtering")
+@click.option("--location", "-l", type=str, default=None,
+              help="Town or city name for species filtering (e.g. 'Biarritz, France')")
 @click.option("--threshold", type=float, default=0.25, show_default=True, help="Minimum confidence (0.0–1.0)")
 @click.option(
     "--db-path",
@@ -47,13 +47,23 @@ def _setup_logging(verbosity: int) -> None:
 @click.option("--birdnet-path", type=click.Path(exists=True), default=None, help="Path to BirdNET-Analyzer directory")
 @click.option("--dashboard/--no-dashboard", default=True, show_default=True, help="Enable Rich live dashboard")
 @click.option("-v", "--verbose", count=True, help="-v for info, -vv for debug")
-def cli(lat, lon, threshold, db_path, device, birdnet_path, dashboard, verbose):
+def cli(location, threshold, db_path, device, birdnet_path, dashboard, verbose):
     """biardtz — real-time bird identification on Raspberry Pi."""
     _setup_logging(verbose)
+
+    lat, lon = Config.latitude, Config.longitude  # defaults
+    if location:
+        from .geocode import resolve_location
+        try:
+            lat, lon, display = resolve_location(location)
+            click.echo(f"Location: {display} ({lat:.4f}, {lon:.4f})")
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), param_hint="'--location'") from exc
 
     kwargs = dict(
         latitude=lat,
         longitude=lon,
+        location_name=location,
         confidence_threshold=threshold,
         db_path=Path(db_path),
         device_index=device,

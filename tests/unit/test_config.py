@@ -112,6 +112,15 @@ class TestConfigCustomValues:
         assert cfg.db_path == db
         assert cfg.enable_dashboard is False
 
+    def test_location_name_default_is_none(self):
+        cfg = Config()
+        assert cfg.location_name is None
+
+    def test_location_name_stored(self):
+        cfg = Config(location_name="Biarritz, France", latitude=43.48, longitude=-1.56)
+        assert cfg.location_name == "Biarritz, France"
+        assert cfg.latitude == 43.48
+
     def test_db_path_string_coerced_to_path(self):
         cfg = Config(db_path="/tmp/test.db")
         assert isinstance(cfg.db_path, Path)

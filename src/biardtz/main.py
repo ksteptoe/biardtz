@@ -56,8 +56,9 @@ async def run(config: Config) -> None:
             # Windows doesn't support add_signal_handler
             pass
 
-    _logger.info("Starting biardtz pipeline (threshold=%.0f%%, lat=%.2f, lon=%.2f)",
-                 config.confidence_threshold * 100, config.latitude, config.longitude)
+    loc = config.location_name or f"{config.latitude:.2f}, {config.longitude:.2f}"
+    _logger.info("Starting biardtz pipeline (threshold=%.0f%%, location=%s)",
+                 config.confidence_threshold * 100, loc)
 
     tasks = [
         asyncio.create_task(audio_producer(config, audio_queue), name="audio"),

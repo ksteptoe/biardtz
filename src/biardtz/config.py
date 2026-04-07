@@ -15,6 +15,7 @@ class Config:
     confidence_threshold: float = 0.25
     latitude: float = 51.50
     longitude: float = -0.12
+    location_name: str | None = None
     week: int = -1
     num_threads: int = 4
     db_path: Path = Path("/mnt/ssd/detections.db")
