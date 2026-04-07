@@ -23,6 +23,10 @@ dependencies = [
     "resampy",
     "tensorflow>=2.20",
     "geopy>=2.4",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.28",
+    "Pillow>=11",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +51,13 @@ Repository = "https://github.com/example/biardtz"
 [project.scripts]
 # For Clickstart-style CLIs; adapt or remove if the project has no CLI
 biardtz = "biardtz.cli:cli"
+biardtz-web = "biardtz.web:serve_standalone"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+biardtz = ["templates/*.html", "static/*"]
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"

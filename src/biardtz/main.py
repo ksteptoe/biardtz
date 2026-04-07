@@ -98,6 +98,19 @@ async def run(config: Config) -> None:
         dashboard = Dashboard()
         tasks.append(asyncio.create_task(dashboard.run(dashboard_queue), name="dashboard"))
 
+    if config.enable_web:
+        import uvicorn
+
+        from .web import create_app
+
+        web_app = create_app(config)
+        uvi_config = uvicorn.Config(
+            web_app, host="0.0.0.0", port=config.web_port, log_level="warning",
+        )
+        server = uvicorn.Server(uvi_config)
+        tasks.append(asyncio.create_task(server.serve(), name="web"))
+        _logger.info("Web dashboard at http://0.0.0.0:%d/", config.web_port)
+
     try:
         await stop_event.wait()
     except (KeyboardInterrupt, asyncio.CancelledError):

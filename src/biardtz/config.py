@@ -22,9 +22,13 @@ class Config:
     db_path: Path = Path("/mnt/ssd/detections.db")
     birdnet_path: Path = dataclasses.field(default=None)
     enable_dashboard: bool = True
+    enable_web: bool = True
+    web_port: int = 8080
+    bird_image_cache: Path = Path("/mnt/ssd/bird_images")
 
     def __post_init__(self):
         self.db_path = Path(self.db_path)
+        self.bird_image_cache = Path(self.bird_image_cache)
         if self.birdnet_path is None:
             # Sibling directory to the repository root
             self.birdnet_path = Path(__file__).resolve().parents[3] / "BirdNET-Analyzer"

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>biardtz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        .htmx-swapping { opacity: 0.5; transition: opacity 0.2s; }
+    </style>
+</head>
+<body class="bg-stone-50 text-stone-800 min-h-screen">
+    <header class="bg-emerald-700 text-white px-4 py-3 shadow-md">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <div>
+                <h1 class="text-xl font-bold tracking-wide">biardtz</h1>
+                <p class="text-emerald-200 text-sm">{{ config.location_name }}</p>
+            </div>
+            <div class="text-emerald-200 text-sm text-right">
+                <div>Bird Detection</div>
+                <div>Live Dashboard</div>
+            </div>
+        </div>
+    </header>
+    <main class="max-w-5xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

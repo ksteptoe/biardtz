@@ -48,8 +48,10 @@ def _setup_logging(verbosity: int) -> None:
 @click.option("--array-bearing", type=float, default=0.0, show_default=True,
               help="Compass bearing (degrees) the mic array faces (0=North)")
 @click.option("--dashboard/--no-dashboard", default=True, show_default=True, help="Enable Rich live dashboard")
+@click.option("--web/--no-web", default=True, show_default=True, help="Enable web dashboard")
+@click.option("--web-port", type=int, default=8080, show_default=True, help="Web dashboard port")
 @click.option("-v", "--verbose", count=True, help="-v for info, -vv for debug")
-def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, verbose):
+def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, web, web_port, verbose):
     """biardtz — real-time bird identification on Raspberry Pi."""
     _setup_logging(verbose)
 
@@ -71,6 +73,8 @@ def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashb
         db_path=Path(db_path),
         device_index=device,
         enable_dashboard=dashboard,
+        enable_web=web,
+        web_port=web_port,
     )
     if birdnet_path is not None:
         kwargs["birdnet_path"] = Path(birdnet_path)
