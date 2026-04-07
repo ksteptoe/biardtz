@@ -379,7 +379,47 @@ rm -f ~/test_detections.db
 
 If all four checks pass, the installation is verified and ready for production use.
 
-## Step 10: Run biardtz
+## Step 10: Access the web dashboard
+
+biardtz includes a browser-based dashboard for viewing detections from any device on the local network (phone, tablet, laptop). It starts automatically when you run `biardtz`.
+
+### Default (integrated mode)
+
+The web dashboard starts alongside the detection pipeline:
+
+```bash
+biardtz --location "Biarritz, France" --device 2
+```
+
+Open `http://<pi-ip>:8080/` in any browser on the same network. The dashboard is mobile-friendly.
+
+### Standalone mode
+
+To run the dashboard without the detection pipeline (read-only access to the database):
+
+```bash
+biardtz-web
+```
+
+This is useful for browsing historical detections without starting audio capture.
+
+### CLI options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--web/--no-web` | `--web` | Enable or disable the web dashboard |
+| `--web-port` | 8080 | Port for the web dashboard |
+
+### What you'll see
+
+- **Summary cards** — today's detections, today's species, all-time species count
+- **Recent detections** — bird name, confidence bar, compass direction, and photo
+- **Species leaderboard** — ranked by detection count
+- **Auto-refresh** — detections update every 5 seconds, stats every 30 seconds
+
+Bird photos are fetched from Wikipedia/Wikidata and cached on the SSD. A fallback silhouette is shown when no photo is available.
+
+## Step 11: Run biardtz
 
 ### Basic usage
 
@@ -411,9 +451,11 @@ biardtz \
 | `--device` | system default | Audio device index |
 | `--birdnet-path` | `../BirdNET-Analyzer` | Path to BirdNET-Analyzer directory |
 | `--dashboard/--no-dashboard` | enabled | Rich live terminal dashboard |
+| `--web/--no-web` | enabled | Web dashboard on local network |
+| `--web-port` | 8080 | Port for the web dashboard |
 | `-v` / `-vv` | warnings only | Verbosity: `-v` info, `-vv` debug |
 
-## Step 11: Run as a service (optional)
+## Step 12: Run as a service (optional)
 
 To run biardtz automatically on boot, create a systemd service:
 

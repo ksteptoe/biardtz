@@ -10,18 +10,35 @@ def get_connection(db_path: Path) -> sqlite3.Connection:
     """Open a read-only connection with WAL mode."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
     return conn
+
+
+def _has_column(conn: sqlite3.Connection, column: str) -> bool:
+    """Check if a column exists in the detections table."""
+    cursor = conn.execute("PRAGMA table_info(detections)")
+    return any(row[1] == column for row in cursor.fetchall())
 
 
 def recent_detections(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     """Most recent detections, newest first."""
-    rows = conn.execute(
-        "SELECT id, timestamp, common_name, sci_name, confidence, "
-        "bearing, direction FROM detections ORDER BY timestamp DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    has_bearing = _has_column(conn, "bearing")
+    if has_bearing:
+        query = (
+            "SELECT id, timestamp, common_name, sci_name, confidence, "
+            "bearing, direction FROM detections ORDER BY timestamp DESC LIMIT ?"
+        )
+    else:
+        query = (
+            "SELECT id, timestamp, common_name, sci_name, confidence "
+            "FROM detections ORDER BY timestamp DESC LIMIT ?"
+        )
+    rows = conn.execute(query, (limit,)).fetchall()
+    results = [dict(r) for r in rows]
+    if not has_bearing:
+        for r in results:
+            r["bearing"] = None
+            r["direction"] = None
+    return results
 
 
 def species_stats(conn: sqlite3.Connection) -> dict:

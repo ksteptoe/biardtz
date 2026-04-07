@@ -152,6 +152,9 @@ All prices include UK VAT. Purchased March 2026.
 | Array processing | `numpy` | Audio buffering and slicing |
 | Database | `aiosqlite` + SQLite | Async detection logging |
 | Terminal UI | `rich` | Live detection display |
+| Web dashboard | `fastapi` + `uvicorn` | Browser-based detection viewer |
+| Templating | `jinja2` + HTMX | Server-rendered pages with live updates |
+| Image fetch | `httpx` + `Pillow` | Bird photo retrieval and caching |
 | CLI | `click` | Command-line interface |
 | OS | Raspberry Pi OS 64-bit | Debian-based Linux |
 
@@ -173,7 +176,14 @@ biardtz/                         # Repository root (PyScaffold layout)
 │   ├── dashboard.py            # Rich live terminal dashboard
 │   ├── doa.py                  # Direction of Arrival (GCC-PHAT on mic array)
 │   ├── main.py                 # Async orchestrator — wires all pipeline stages
-│   └── api.py                  # Public Python API
+│   ├── api.py                  # Public Python API
+│   └── web/                    # Web dashboard (FastAPI + HTMX)
+│       ├── __init__.py         # FastAPI app factory
+│       ├── routes.py           # Page, API, and HTMX partial endpoints
+│       ├── image_cache.py      # Wikidata bird image fetcher + SSD cache
+│       └── db.py               # Read-only database queries
+│   ├── templates/              # Jinja2 HTML templates
+│   └── static/                 # Static assets (fallback-bird.svg)
 ├── docs/                       # Sphinx documentation (MyST Markdown)
 │   ├── build_log.md            # This file
 │   ├── conf.py                 # Sphinx config
@@ -214,8 +224,8 @@ biardtz/                         # Repository root (PyScaffold layout)
 - [ ] Extend database schema for bat detections
 - [ ] Validate against local bat species at dusk
 
-### Phase 3 — Visualisation & Reporting (future)
-- [ ] Web dashboard (Flask or FastAPI) for browsing detections
+### Phase 3 — Visualisation & Reporting (in progress)
+- [x] Web dashboard (FastAPI + HTMX) for browsing detections
 - [ ] Daily/weekly species summary emails
 - [ ] Integration with citizen science platforms (eBird, iNaturalist)
 - [ ] Optional: camera trap integration for visual confirmation
@@ -466,6 +476,35 @@ ALTER TABLE detections ADD COLUMN direction TEXT;
 Migration is backward-compatible — existing rows get NULL values. The Rich dashboard now includes a direction column.
 
 **Released as v0.1.0.**
+
+### Web Dashboard (v0.2.0)
+
+Added a browser-based dashboard for viewing detections from any device on the local network. Stack: FastAPI + Jinja2 + HTMX + Tailwind CSS (via CDN).
+
+Features:
+- Summary cards showing today's detections, today's species, and all-time species count
+- Recent detections list with bird photos sourced from Wikipedia/Wikidata (cached on SSD)
+- Colour-coded confidence bars (green >75%, amber >50%, grey below)
+- SVG compass indicator showing direction of arrival
+- Species leaderboard
+- Auto-refresh via HTMX (detections every 5s, stats every 30s)
+- Mobile-friendly responsive layout with an emerald green nature theme
+
+Two ways to run:
+- **Integrated:** `biardtz` starts the web dashboard automatically on port 8080
+- **Standalone:** `biardtz-web` runs just the dashboard in read-only mode against the database
+
+CLI flags: `--web/--no-web`, `--web-port 8080`. Access at `http://<pi-ip>:8080/` from any device on the network.
+
+New modules:
+- `src/biardtz/web/__init__.py` — FastAPI app factory
+- `src/biardtz/web/routes.py` — page, API, and HTMX partial endpoints
+- `src/biardtz/web/image_cache.py` — Wikidata image fetcher with SSD cache
+- `src/biardtz/web/db.py` — read-only database queries
+- `src/biardtz/templates/` — Jinja2 HTML templates
+- `src/biardtz/static/fallback-bird.svg` — fallback bird silhouette
+
+New dependencies: `fastapi`, `uvicorn`, `httpx`, `Pillow`.
 
 ### Phase 1 Progress Update
 

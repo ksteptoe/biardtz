@@ -49,11 +49,11 @@ class TestPipeline:
                 audio_queue = asyncio.Queue()
                 # Put one audio chunk and then let the worker process it
                 chunk = np.zeros(config.chunk_samples, dtype=np.float32)
-                await audio_queue.put(chunk)
+                await audio_queue.put((chunk, None))
 
                 # Run worker for just one iteration
                 worker_task = asyncio.create_task(
-                    _detection_worker(detector, audio_queue, det_logger, None)
+                    _detection_worker(detector, audio_queue, det_logger, None, config)
                 )
                 # Give the worker time to process
                 await asyncio.sleep(0.1)

@@ -23,13 +23,9 @@ def register(app: FastAPI) -> None:
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
+            request,
             "index.html",
-            {
-                "request": request,
-                "detections": detections,
-                "stats": stats,
-                "config": config,
-            },
+            {"detections": detections, "stats": stats, "config": config},
         )
 
     @app.get("/partials/detections", response_class=HTMLResponse)
@@ -43,8 +39,9 @@ def register(app: FastAPI) -> None:
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
+            request,
             "_detections.html",
-            {"request": request, "detections": detections},
+            {"detections": detections},
         )
 
     @app.get("/partials/stats", response_class=HTMLResponse)
@@ -56,8 +53,9 @@ def register(app: FastAPI) -> None:
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
+            request,
             "_stats.html",
-            {"request": request, "stats": stats},
+            {"stats": stats},
         )
 
     @app.get("/api/detections")
