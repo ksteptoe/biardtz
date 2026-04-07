@@ -16,6 +16,8 @@ class Detection(NamedTuple):
     common_name: str
     sci_name: str
     confidence: float
+    bearing: float | None = None     # compass degrees 0-360
+    direction: str | None = None     # octant: N, NE, E, SE, S, SW, W, NW
 
 
 class Detector:

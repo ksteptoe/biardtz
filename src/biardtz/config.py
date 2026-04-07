@@ -16,6 +16,7 @@ class Config:
     latitude: float = 51.50
     longitude: float = -0.12
     location_name: str | None = None
+    array_bearing: float = 0.0  # compass bearing (degrees) that mic 0 faces; 0=North
     week: int = -1
     num_threads: int = 4
     db_path: Path = Path("/mnt/ssd/detections.db")

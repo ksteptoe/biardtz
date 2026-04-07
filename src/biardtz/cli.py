@@ -45,9 +45,11 @@ def _setup_logging(verbosity: int) -> None:
 )
 @click.option("--device", type=int, default=None, help="Audio device index (None = system default)")
 @click.option("--birdnet-path", type=click.Path(exists=True), default=None, help="Path to BirdNET-Analyzer directory")
+@click.option("--array-bearing", type=float, default=0.0, show_default=True,
+              help="Compass bearing (degrees) the mic array faces (0=North)")
 @click.option("--dashboard/--no-dashboard", default=True, show_default=True, help="Enable Rich live dashboard")
 @click.option("-v", "--verbose", count=True, help="-v for info, -vv for debug")
-def cli(location, threshold, db_path, device, birdnet_path, dashboard, verbose):
+def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, verbose):
     """biardtz — real-time bird identification on Raspberry Pi."""
     _setup_logging(verbose)
 
@@ -64,6 +66,7 @@ def cli(location, threshold, db_path, device, birdnet_path, dashboard, verbose):
         latitude=lat,
         longitude=lon,
         location_name=location,
+        array_bearing=array_bearing,
         confidence_threshold=threshold,
         db_path=Path(db_path),
         device_index=device,

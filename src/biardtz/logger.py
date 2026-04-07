@@ -18,11 +18,19 @@ CREATE TABLE IF NOT EXISTS detections (
     sci_name      TEXT NOT NULL,
     confidence    REAL NOT NULL,
     latitude      REAL,
-    longitude     REAL
+    longitude     REAL,
+    bearing       REAL,
+    direction     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_timestamp ON detections(timestamp);
 CREATE INDEX IF NOT EXISTS idx_species   ON detections(common_name);
 """
+
+# Columns added after initial schema — migrated via ALTER TABLE
+_MIGRATION_COLUMNS = [
+    ("bearing", "REAL"),
+    ("direction", "TEXT"),
+]
 
 
 class DetectionLogger:
@@ -53,6 +61,15 @@ class DetectionLogger:
             _logger.warning("Could not run integrity check", exc_info=True)
 
         await self._db.executescript(_SCHEMA)
+
+        # Migrate existing databases: add columns if missing
+        for col_name, col_type in _MIGRATION_COLUMNS:
+            try:
+                await self._db.execute(f"ALTER TABLE detections ADD COLUMN {col_name} {col_type}")
+                _logger.info("Migrated: added column %s to detections", col_name)
+            except Exception:
+                pass  # Column already exists
+
         await self._db.commit()
         _logger.info("Database ready at %s (WAL mode)", self._config.db_path)
 
@@ -60,10 +77,12 @@ class DetectionLogger:
         assert self._db is not None
         ts = datetime.now(timezone.utc).isoformat()
         await self._db.execute(
-            "INSERT INTO detections (timestamp, common_name, sci_name, confidence, latitude, longitude) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO detections "
+            "(timestamp, common_name, sci_name, confidence, latitude, longitude, bearing, direction) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, detection.common_name, detection.sci_name, detection.confidence,
-             self._config.latitude, self._config.longitude),
+             self._config.latitude, self._config.longitude,
+             detection.bearing, detection.direction),
         )
         await self._db.commit()
         self._count += 1

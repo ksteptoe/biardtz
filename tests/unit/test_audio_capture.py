@@ -19,7 +19,7 @@ class TestAudioProducer:
         mock_stream.stop = MagicMock()
         mock_stream.close = MagicMock()
 
-        # Simulate audio data arriving: send exactly one chunk worth, then None to stop
+        # Simulate audio data arriving as (mono, multi) tuples
         audio_data = np.random.randn(chunk_samples).astype(np.float32)
         half = chunk_samples // 2
 
@@ -42,9 +42,9 @@ class TestAudioProducer:
                     import queue as stdlib_queue
 
                     test_queue = stdlib_queue.Queue(maxsize=16)
-                    # Put audio data, then None sentinel
-                    test_queue.put(audio_data[:half])
-                    test_queue.put(audio_data[half:])
+                    # Put audio data as (mono, multi) tuples, then None sentinel
+                    test_queue.put((audio_data[:half], None))
+                    test_queue.put((audio_data[half:], None))
                     test_queue.put(None)
 
                     with patch.object(ac_module.queue, "Queue", return_value=test_queue):
@@ -52,10 +52,10 @@ class TestAudioProducer:
                         # Wait for the task to finish (it'll exit on None sentinel)
                         await asyncio.wait_for(task, timeout=5.0)
 
-                    # Should have exactly one chunk
+                    # Should have exactly one chunk (as a tuple)
                     assert not out_queue.empty()
-                    chunk = await out_queue.get()
-                    assert len(chunk) == chunk_samples
+                    mono, multi = await out_queue.get()
+                    assert len(mono) == chunk_samples
                     assert out_queue.empty()
 
                 asyncio.run(run_test())

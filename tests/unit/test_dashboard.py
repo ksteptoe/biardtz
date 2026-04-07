@@ -16,10 +16,10 @@ class TestBuildTable:
         table = dash._build_table()
         assert isinstance(table, Table)
 
-    def test_table_has_four_columns(self):
+    def test_table_has_five_columns(self):
         dash = Dashboard()
         table = dash._build_table()
-        assert len(table.columns) == 4
+        assert len(table.columns) == 5
 
     def test_table_title_contains_stats(self):
         dash = Dashboard()

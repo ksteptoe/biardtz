@@ -8,6 +8,7 @@ from .audio_capture import audio_producer
 from .config import Config
 from .dashboard import Dashboard
 from .detector import Detector
+from .doa import estimate_doa
 from .logger import DetectionLogger
 
 _logger = logging.getLogger(__name__)
@@ -18,16 +19,42 @@ async def _detection_worker(
     audio_queue: asyncio.Queue,
     det_logger: DetectionLogger,
     dashboard_queue: asyncio.Queue | None,
+    config: Config | None = None,
 ) -> None:
     while True:
-        chunk = await audio_queue.get()
+        item = await audio_queue.get()
+        if isinstance(item, tuple):
+            chunk, multichannel = item
+        else:
+            chunk, multichannel = item, None
+
         try:
             detections = await detector.predict(chunk)
         except Exception:
             _logger.exception("Inference error")
             continue
+
+        # Run DOA if we have detections and multichannel data
+        bearing = None
+        direction = None
+        if detections and multichannel is not None and config is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                bearing, direction = await loop.run_in_executor(
+                    None, estimate_doa, multichannel,
+                    config.sample_rate, config.array_bearing,
+                )
+            except Exception:
+                _logger.exception("DOA estimation error")
+
         for det in detections:
-            _logger.info("Detected: %s (%.1f%%)", det.common_name, det.confidence * 100)
+            if bearing is not None:
+                det = det._replace(bearing=bearing, direction=direction)
+            _logger.info(
+                "Detected: %s (%.1f%%)%s",
+                det.common_name, det.confidence * 100,
+                f" from {det.direction} ({det.bearing:.0f}\u00b0)" if det.direction else "",
+            )
             await det_logger.log(det)
             if dashboard_queue is not None:
                 await dashboard_queue.put(det)
@@ -62,7 +89,7 @@ async def run(config: Config) -> None:
 
     tasks = [
         asyncio.create_task(audio_producer(config, audio_queue), name="audio"),
-        asyncio.create_task(_detection_worker(detector, audio_queue, det_logger, dashboard_queue), name="worker"),
+        asyncio.create_task(_detection_worker(detector, audio_queue, det_logger, dashboard_queue, config), name="worker"),
     ]
     if config.enable_dashboard and dashboard_queue is not None:
         dashboard = Dashboard()

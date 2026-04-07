@@ -36,6 +36,7 @@ class Dashboard:
         table.add_column("Species", ratio=2)
         table.add_column("Scientific Name", ratio=2)
         table.add_column("Confidence", justify="right", width=12)
+        table.add_column("Direction", justify="center", width=6)
 
         for ts, det in reversed(self._recent):
             conf = det.confidence
@@ -45,7 +46,11 @@ class Dashboard:
                 style = "yellow"
             else:
                 style = "dim"
-            table.add_row(ts, det.common_name, det.sci_name, Text(f"{conf:.1%}", style=style))
+            table.add_row(
+                ts, det.common_name, det.sci_name,
+                Text(f"{conf:.1%}", style=style),
+                det.direction or "",
+            )
 
         return table
 
