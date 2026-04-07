@@ -197,25 +197,31 @@ biardtz --help
 
 You should see the full list of command-line options.
 
-## Step 7: Mount the SSD (optional but recommended)
+## Step 7: Mount the SSD
 
-biardtz writes detections to an SQLite database. An SSD avoids wearing out the SD card with constant writes.
+biardtz writes detections to an SQLite database. The database **must** live on an ext4-formatted SSD, not the SD card — constant SQLite WAL writes will wear out a microSD card quickly, and exFAT (the factory format on Samsung T7 drives) does not support Unix permissions or reliable SQLite WAL mode.
 
-### Find the SSD device
-
-```bash
-lsblk
-```
-
-Look for your SSD (usually `/dev/sda1`).
-
-### Format (only if new — this erases all data!)
+### 1. Identify the SSD
 
 ```bash
-sudo mkfs.ext4 /dev/sda1
+lsblk -f
 ```
 
-### Mount it
+Look for the Samsung T7 — typically `/dev/sda1`. If it shows as exFAT mounted at `/media/$USER/T7`, it was auto-mounted and needs to be reformatted.
+
+### 2. Unmount if auto-mounted
+
+```bash
+sudo umount /dev/sda1
+```
+
+### 3. Format as ext4 (first time only — erases all data)
+
+```bash
+sudo mkfs.ext4 -L biardtz_ssd /dev/sda1
+```
+
+### 4. Create mount point and mount
 
 ```bash
 sudo mkdir -p /mnt/ssd
@@ -223,11 +229,29 @@ sudo mount /dev/sda1 /mnt/ssd
 sudo chown $USER:$USER /mnt/ssd
 ```
 
-### Make it permanent (auto-mount on boot)
+### 5. Add to fstab for auto-mount on boot
+
+Use the UUID (more reliable than `/dev/sda1` which can change):
 
 ```bash
-echo '/dev/sda1 /mnt/ssd ext4 defaults,noatime 0 2' | sudo tee -a /etc/fstab
+# Get the UUID
+sudo blkid /dev/sda1
+
+# Add fstab entry (replace <your-uuid> with the actual UUID)
+echo 'UUID=<your-uuid> /mnt/ssd ext4 defaults,nofail,noatime 0 2' | sudo tee -a /etc/fstab
 ```
+
+### 6. Verify
+
+```bash
+make verify-storage
+```
+
+This checks: mount point exists, filesystem is ext4, writable by current user, available space, and fstab entry.
+
+**Mount options explained:**
+- `nofail` — the Pi will still boot even if the SSD is disconnected
+- `noatime` — skips updating access timestamps, reducing unnecessary writes
 
 If you skip the SSD, override the database path when running:
 ```bash
@@ -281,169 +305,79 @@ Note the index for the ReSpeaker (typically 1) — you'll use this with `--devic
 
 ## Step 9: Verify the installation
 
-Before running biardtz for real, use the progressive verification system to confirm each layer independently. The idea is simple: test the Python environment first, then hardware, then audio capture, then the BirdNET model, and finally the full end-to-end pipeline. If something fails at an early stage, you know exactly where the problem is without wading through later errors.
+Before running biardtz for real, walk through these checks to confirm that the hardware, audio stack, and software are all working correctly.
 
-The verification script lives at `scripts/verify_install.py` and is exposed through Makefile targets. You can run individual stages or all of them at once.
-
-### Progressive verification stages
-
-Work through these in order. Each stage builds on the previous one.
-
-#### 1. Environment (`make verify-env`)
-
-Checks that Python 3.12+ is available, the virtualenv is active, and all required packages can be imported (click, sounddevice, numpy, aiosqlite, rich, keras, biardtz).
+### 1. Verify mic detection
 
 ```bash
-make verify-env
+arecord -l
 ```
 
-Expected output:
+You should see the ReSpeaker listed as a capture device, for example:
 
 ```
-biardtz verification — group: env
-
-============================================================
-  Python environment
-============================================================
-  Python:     /home/kevin/miniforge3/envs/biardtz/bin/python
-  Version:    3.12.x
-  PASS: Python >= 3.12
-  Virtualenv: Yes
-  import click: PASS
-  import sounddevice: PASS
-  import numpy: PASS
-  import aiosqlite: PASS
-  import rich: PASS
-  Importing keras (may take a moment)...
-  import keras: PASS
-  import biardtz: PASS (v0.x.x)
+card 2: ArrayUAC10 [ReSpeaker 4 Mic Array (UAC1.0)], device 0: USB Audio [USB Audio]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
 ```
 
-If this fails, run `pip install -e ".[dev]"` in the correct conda/venv environment.
+The card number may differ depending on other USB devices. If the ReSpeaker does not appear, try a different USB port or check `lsusb | grep -i seed`.
 
-#### 2. Hardware (`make verify-hw`)
+### 2. Audio capture test
 
-Checks that the ReSpeaker USB 4-Mic Array is visible to ALSA (`arecord -l`) and to sounddevice (`sd.query_devices()`).
+Record 3 seconds of audio via sounddevice and check that the microphone is picking up sound:
 
 ```bash
-make verify-hw
+python -c "
+import sounddevice as sd
+import numpy as np
+audio = sd.rec(int(3 * 48000), samplerate=48000, channels=1, dtype='float32', device=0)
+sd.wait()
+peak = np.max(np.abs(audio))
+rms = np.sqrt(np.mean(audio**2))
+print(f'Samples: {len(audio)}, Peak: {peak:.4f}, RMS: {rms:.6f}')
+print('Audio capture working!' if peak > 0 else 'WARNING: silence — check mic')
+"
 ```
 
-Expected output includes the ReSpeaker listed as a capture device and a sounddevice input device with `max_input_channels > 0`.
+Expected output (values will vary depending on ambient noise):
 
-If the mic is not detected:
-- Try a different USB port
-- Check `lsusb | grep -i seed` to confirm the device is connected
-- Ensure `libportaudio2` is installed
+```
+Samples: 144000, Peak: 0.0372, RMS: 0.003841
+Audio capture working!
+```
 
-#### 3. Audio capture (`make verify-audio`)
+If you see `WARNING: silence`, the mic may not be the default device. Check `python -c "import sounddevice; print(sounddevice.query_devices())"` and adjust the `device=` parameter. The ReSpeaker typically shows as device 0 (6 in, 2 out) in sounddevice.
 
-Records 3 seconds of audio from device 0 at its native sample rate (16000 Hz for the ReSpeaker) and checks that the signal is not silent.
+### 3. CLI check
 
 ```bash
-make verify-audio
+biardtz --help
 ```
 
-Expected output:
+You should see the full list of command-line options (lat, lon, threshold, device, etc.). This confirms the package is installed and the entry point is registered.
 
-```
-biardtz verification — group: audio
+### 4. Run the detector
 
-============================================================
-  Audio capture test (3 seconds)
-============================================================
-Recording 3s at 16000 Hz ...
-Samples: 48000  Peak: 0.0312  RMS: 0.000482
-PASS: audio capture working
-```
-
-If silence is detected (peak = 0), verify the ReSpeaker is device 0 with `python -c "import sounddevice; print(sounddevice.query_devices())"`.
-
-#### 4. BirdNET model (`make verify-model`)
-
-Checks that the BirdNET-Analyzer directory exists at the configured path, imports the `birdnet_analyzer` package, loads species labels, and loads the TFLite model into memory. Model loading takes 10-15 seconds on the Pi.
+Start biardtz to confirm the full pipeline initialises:
 
 ```bash
-make verify-model
+biardtz --db-path ~/test_detections.db -v
 ```
 
-Expected output:
-
-```
-biardtz verification — group: model
-
-============================================================
-  BirdNET model
-============================================================
-  BirdNET path: /home/kevin/BirdNET-Analyzer
-  PASS: directory exists
-  PASS: birdnet_analyzer imports OK
-  Labels loaded: 6522
-  Loading model (may take 10-15s on Pi)...
-  PASS: model loaded
-```
-
-If the directory is not found, clone it: `git clone https://github.com/kahst/BirdNET-Analyzer.git ~/BirdNET-Analyzer`
-
-#### 5. End-to-end (`make verify-e2e`)
-
-Runs the full biardtz pipeline for 10 seconds with a temporary database, then sends SIGTERM and checks for a clean shutdown. This confirms that audio capture, BirdNET inference, and database logging all work together.
+You should see log output indicating that audio capture and BirdNET inference have started. Press `Ctrl+C` to stop. If detections are logged, you can inspect them:
 
 ```bash
-make verify-e2e
+sqlite3 ~/test_detections.db "SELECT * FROM detections LIMIT 5;"
 ```
 
-The command runs `biardtz --db-path /tmp/biardtz_verify.db --no-dashboard -v` for 10 seconds, then verifies:
-- The process exited cleanly (exit code 0 or -15 for SIGTERM)
-- The database file was created at `/tmp/biardtz_verify.db`
-
-The temporary database is cleaned up automatically after the check.
-
-### Run all stages at once
-
-To run every stage in sequence:
+Clean up the test database when done:
 
 ```bash
-make verify
+rm -f ~/test_detections.db
 ```
 
-This executes env, hardware, audio, model, cli, and e2e in order and prints a summary at the end:
-
-```
-============================================================
-  SUMMARY
-============================================================
-  PASS  env
-  PASS  alsa
-  PASS  sounddevice
-  PASS  audio_capture
-  PASS  model
-  PASS  cli
-  PASS  e2e
-
-All checks passed.
-```
-
-### Debugging progression
-
-If `make verify` fails, use the individual targets to isolate the problem:
-
-1. `make verify-env` -- if this fails, fix the Python environment first
-2. `make verify-hw` -- if this fails, the mic is not detected (USB/driver issue)
-3. `make verify-audio` -- if this fails, the mic is detected but not capturing (permissions, device index)
-4. `make verify-model` -- if this fails, BirdNET is not installed or the model files are missing
-5. `make verify-e2e` -- if this fails, something in the pipeline integration is broken
-
-### Automated tests
-
-Corresponding pytest tests exist at `tests/system/test_verify_install.py`, marked with `@pytest.mark.live`. These run the same checks in a pytest harness and are included in `make test-live` and `make test-full`.
-
-### Common issues
-
-- **No capture device**: try a different USB port or check `lsusb | grep -i seed`
-- **Silence detected**: check `python -c "import sounddevice; print(sounddevice.query_devices())"` and verify the ReSpeaker is device 0
-- **CLI not found**: reinstall with `pip install -e ".[dev]"`
-- **Model load fails**: ensure BirdNET checkpoints are downloaded (see Step 5)
+If all four checks pass, the installation is verified and ready for production use.
 
 ## Step 10: Run biardtz
 

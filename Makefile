@@ -92,6 +92,7 @@ help:
 	@echo "  make verify-hw           - check mic hardware (ALSA + sounddevice)"
 	@echo "  make verify-audio        - capture 3s audio test"
 	@echo "  make verify-model        - load BirdNET model"
+	@echo "  make verify-storage      - check SSD mount at /mnt/ssd"
 	@echo "  make verify-e2e          - end-to-end 10s run with temp db"
 	@echo "  make verify              - run all verification checks"
 	@echo "  make run-cli             - run via python -m package (pass CLI_ARGS=...)"
@@ -351,6 +352,9 @@ verify-audio: $(ENV_STAMP)
 
 verify-model: $(ENV_STAMP)
 	"$(PY)" scripts/verify_install.py model
+
+verify-storage: $(ENV_STAMP)
+	"$(PY)" scripts/verify_install.py storage
 
 verify-e2e: $(ENV_STAMP)
 	"$(PY)" scripts/verify_install.py e2e

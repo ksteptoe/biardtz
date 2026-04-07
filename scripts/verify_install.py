@@ -184,6 +184,80 @@ def check_model():
 
 
 # ---------------------------------------------------------------------------
+# Group: storage
+# ---------------------------------------------------------------------------
+
+def check_storage():
+    step("SSD storage (/mnt/ssd)")
+    ok = True
+    mount_point = "/mnt/ssd"
+
+    # Check mount point exists
+    if not os.path.isdir(mount_point):
+        print(f"  FAIL: {mount_point} does not exist")
+        print("  Run: sudo mkdir -p /mnt/ssd")
+        return False
+    print(f"  PASS: {mount_point} exists")
+
+    # Check it's a mount (not just an empty directory)
+    if not os.path.ismount(mount_point):
+        print(f"  FAIL: {mount_point} is not a mount point")
+        print("  Run: sudo mount /dev/sda1 /mnt/ssd")
+        return False
+    print(f"  PASS: {mount_point} is mounted")
+
+    # Check filesystem type
+    try:
+        result = subprocess.run(
+            ["findmnt", "-n", "-o", "FSTYPE", mount_point],
+            capture_output=True, text=True,
+        )
+        fstype = result.stdout.strip()
+        if fstype == "ext4":
+            print(f"  PASS: filesystem is ext4")
+        else:
+            print(f"  WARN: filesystem is {fstype} (ext4 recommended for SQLite WAL)")
+            ok = False
+    except FileNotFoundError:
+        pass  # findmnt not available, skip check
+
+    # Check writable by current user
+    test_file = os.path.join(mount_point, ".biardtz_write_test")
+    try:
+        with open(test_file, "w") as f:
+            f.write("ok")
+        os.remove(test_file)
+        print(f"  PASS: writable by user {os.getenv('USER', 'unknown')}")
+    except PermissionError:
+        print(f"  FAIL: not writable by user {os.getenv('USER', 'unknown')}")
+        print(f"  Run: sudo chown $USER:$USER {mount_point}")
+        ok = False
+
+    # Check available space
+    stat = os.statvfs(mount_point)
+    avail_gb = (stat.f_bavail * stat.f_frsize) / (1024 ** 3)
+    print(f"  Available: {avail_gb:.1f} GB")
+    if avail_gb < 1:
+        print("  WARN: less than 1 GB free")
+        ok = False
+
+    # Check fstab for persistent mount
+    try:
+        with open("/etc/fstab") as f:
+            fstab = f.read()
+        if "/mnt/ssd" in fstab:
+            print("  PASS: fstab entry exists")
+        else:
+            print("  WARN: no fstab entry — SSD will not auto-mount on reboot")
+    except PermissionError:
+        pass
+
+    if ok:
+        print(f"PASS: SSD storage ready")
+    return ok
+
+
+# ---------------------------------------------------------------------------
 # Group: cli
 # ---------------------------------------------------------------------------
 
@@ -269,13 +343,14 @@ GROUPS = {
     "env": [("env", check_env)],
     "hardware": [("alsa", check_alsa), ("sounddevice", check_sounddevice)],
     "audio": [("audio_capture", check_audio_capture)],
+    "storage": [("storage", check_storage)],
     "model": [("model", check_model)],
     "cli": [("cli", check_cli)],
     "e2e": [("e2e", check_e2e)],
     "all": None,  # special: runs everything
 }
 
-ALL_ORDER = ["env", "hardware", "audio", "model", "cli", "e2e"]
+ALL_ORDER = ["env", "hardware", "audio", "storage", "model", "cli", "e2e"]
 
 
 def run_checks(group):

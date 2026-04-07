@@ -245,21 +245,40 @@ sudo reboot
 
 ### 3. Mount the SSD
 
-```bash
-# Find the SSD device
-lsblk
+The Samsung T7 ships formatted as exFAT, which is not suitable for SQLite WAL mode.
+It must be reformatted as ext4.
 
-# Format (first time only)
-sudo mkfs.ext4 /dev/sda1
+```bash
+# Identify the SSD
+lsblk -f
+# Look for the Samsung T7 — typically /dev/sda1
+
+# If auto-mounted (e.g. at /media/kevin/T7 as exFAT), unmount first
+sudo umount /dev/sda1
+
+# Format as ext4 (first time only — destroys all data)
+sudo mkfs.ext4 -L biardtz_ssd /dev/sda1
 
 # Create mount point and mount
 sudo mkdir -p /mnt/ssd
 sudo mount /dev/sda1 /mnt/ssd
-sudo chown pi:pi /mnt/ssd
+sudo chown $USER:$USER /mnt/ssd
 
-# Add to fstab for auto-mount on boot
-echo '/dev/sda1 /mnt/ssd ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+# Add to fstab for auto-mount on boot (use UUID, not device path)
+# Get the UUID:
+sudo blkid /dev/sda1
+# Then add to fstab (replace <your-uuid> with the actual UUID):
+echo 'UUID=<your-uuid> /mnt/ssd ext4 defaults,nofail,noatime 0 2' | sudo tee -a /etc/fstab
+
+# Verify the setup
+make verify-storage
 ```
+
+**Notes:**
+- Using UUID in fstab is more reliable than `/dev/sda1`, which can change across reboots.
+- `nofail` means the Pi will still boot even if the SSD is disconnected.
+- `noatime` reduces unnecessary writes, extending SSD lifespan.
+- The default database path `/mnt/ssd/detections.db` is set in `config.py` and overridable via `--db-path`.
 
 ### 4. Install Dependencies
 
