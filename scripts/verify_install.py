@@ -213,7 +213,7 @@ def check_e2e():
     if os.path.exists(db_path):
         os.remove(db_path)
 
-    cmd = ["biardtz", "--db-path", db_path, "--no-dashboard", "-v"]
+    cmd = [sys.executable, "-m", "biardtz", "--db-path", db_path, "--no-dashboard", "-v"]
     print(f"  Starting: {' '.join(cmd)}")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     print(f"  PID: {proc.pid}")

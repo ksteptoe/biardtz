@@ -66,7 +66,10 @@ def cli(lat, lon, threshold, db_path, device, birdnet_path, dashboard, verbose):
 
     from .main import run
 
-    asyncio.run(run(config))
+    try:
+        asyncio.run(run(config))
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
 
 if __name__ == "__main__":
