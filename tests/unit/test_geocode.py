@@ -8,18 +8,21 @@ from biardtz.geocode import resolve_location
 
 
 class TestResolveLocation:
+    @patch("biardtz.geocode._tzfinder")
     @patch("biardtz.geocode._geolocator")
-    def test_resolves_known_city(self, mock_geolocator):
+    def test_resolves_known_city(self, mock_geolocator, mock_tzfinder):
         mock_location = MagicMock()
         mock_location.latitude = 43.4832
         mock_location.longitude = -1.5586
         mock_location.address = "Biarritz, Pyrénées-Atlantiques, France"
         mock_geolocator.geocode.return_value = mock_location
+        mock_tzfinder.timezone_at.return_value = "Europe/Paris"
 
-        lat, lon, display = resolve_location("Biarritz")
+        lat, lon, display, tz_name = resolve_location("Biarritz")
         assert abs(lat - 43.4832) < 1e-4
         assert abs(lon - (-1.5586)) < 1e-4
         assert "Biarritz" in display
+        assert tz_name == "Europe/Paris"
         mock_geolocator.geocode.assert_called_once_with("Biarritz")
 
     @patch("biardtz.geocode._geolocator")

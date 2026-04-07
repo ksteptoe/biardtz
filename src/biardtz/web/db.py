@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, time, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 def get_connection(db_path: Path) -> sqlite3.Connection:
@@ -17,6 +19,13 @@ def _has_column(conn: sqlite3.Connection, column: str) -> bool:
     """Check if a column exists in the detections table."""
     cursor = conn.execute("PRAGMA table_info(detections)")
     return any(row[1] == column for row in cursor.fetchall())
+
+
+def _today_start_utc(local_tz: ZoneInfo) -> str:
+    """Return the UTC ISO timestamp for the start of today in *local_tz*."""
+    now_local = datetime.now(local_tz)
+    start_of_day = datetime.combine(now_local.date(), time.min, tzinfo=local_tz)
+    return start_of_day.astimezone(timezone.utc).isoformat()
 
 
 def recent_detections(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
@@ -41,12 +50,25 @@ def recent_detections(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     return results
 
 
-def species_stats(conn: sqlite3.Connection) -> dict:
-    """Today's and all-time stats + leaderboard."""
-    # Today's counts
+def species_stats(
+    conn: sqlite3.Connection,
+    local_tz: ZoneInfo | None = None,
+) -> dict:
+    """Today's and all-time stats + leaderboard.
+
+    If *local_tz* is provided, "today" is calculated in that timezone.
+    Otherwise falls back to UTC.
+    """
+    if local_tz is not None:
+        today_start = _today_start_utc(local_tz)
+    else:
+        today_start = _today_start_utc(ZoneInfo("UTC"))
+
+    # Today's counts (using local timezone boundary)
     row = conn.execute(
         "SELECT COUNT(*) as count, COUNT(DISTINCT common_name) as species "
-        "FROM detections WHERE date(timestamp) = date('now')",
+        "FROM detections WHERE timestamp >= ?",
+        (today_start,),
     ).fetchone()
     today_count = row["count"]
     today_species = row["species"]

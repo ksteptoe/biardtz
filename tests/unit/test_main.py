@@ -110,6 +110,7 @@ class TestRun:
             db_path=tmp_path / "test.db",
             birdnet_path=tmp_path / "BirdNET",
             enable_dashboard=False,
+            enable_web=False,
         )
 
         async def run_test():
@@ -152,6 +153,7 @@ class TestRun:
             db_path=tmp_path / "test.db",
             birdnet_path=tmp_path / "BirdNET",
             enable_dashboard=True,
+            enable_web=False,
         )
 
         async def run_test():

@@ -95,7 +95,7 @@ async def run(config: Config) -> None:
         ),
     ]
     if config.enable_dashboard and dashboard_queue is not None:
-        dashboard = Dashboard()
+        dashboard = Dashboard(local_tz=config.tz)
         tasks.append(asyncio.create_task(dashboard.run(dashboard_queue), name="dashboard"))
 
     if config.enable_web:

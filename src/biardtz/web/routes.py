@@ -19,7 +19,7 @@ def register(app: FastAPI) -> None:
         conn = db.get_connection(config.db_path)
         try:
             detections = db.recent_detections(conn, limit=20)
-            stats = db.species_stats(conn)
+            stats = db.species_stats(conn, config.tz)
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
@@ -49,7 +49,7 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            stats = db.species_stats(conn)
+            stats = db.species_stats(conn, config.tz)
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(

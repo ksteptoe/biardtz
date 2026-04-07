@@ -27,6 +27,7 @@ dependencies = [
     "uvicorn[standard]>=0.34",
     "httpx>=0.28",
     "Pillow>=11",
+    "timezonefinder>=8",
 ]
 
 [project.optional-dependencies]

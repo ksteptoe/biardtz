@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 @dataclasses.dataclass
@@ -16,6 +17,7 @@ class Config:
     latitude: float = 51.50
     longitude: float = -0.12
     location_name: str = "London"
+    tz_name: str = "Europe/London"
     array_bearing: float = 0.0  # compass bearing (degrees) that mic 0 faces; 0=North
     week: int = -1
     num_threads: int = 4
@@ -38,3 +40,7 @@ class Config:
     @property
     def chunk_samples(self) -> int:
         return int(self.sample_rate * self.chunk_duration)
+
+    @property
+    def tz(self) -> ZoneInfo:
+        return ZoneInfo(self.tz_name)

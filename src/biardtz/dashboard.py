@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections import deque
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from rich.live import Live
 from rich.table import Table
@@ -17,11 +18,12 @@ _logger = logging.getLogger(__name__)
 class Dashboard:
     """Rich live terminal dashboard showing recent detections."""
 
-    def __init__(self, max_rows: int = 20):
+    def __init__(self, max_rows: int = 20, local_tz: ZoneInfo | None = None):
         self._recent: deque[tuple[str, Detection]] = deque(maxlen=max_rows)
         self._total = 0
         self._species: set[str] = set()
         self._start = datetime.now(timezone.utc)
+        self._local_tz = local_tz or ZoneInfo("UTC")
 
     def _build_table(self) -> Table:
         elapsed = datetime.now(timezone.utc) - self._start
@@ -58,7 +60,7 @@ class Dashboard:
         with Live(self._build_table(), refresh_per_second=4) as live:
             while True:
                 detection: Detection = await detection_queue.get()
-                ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+                ts = datetime.now(self._local_tz).strftime("%H:%M:%S")
                 self._recent.append((ts, detection))
                 self._total += 1
                 self._species.add(detection.common_name)

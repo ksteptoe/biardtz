@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -15,18 +16,23 @@ from . import routes
 __all__ = ["create_app", "serve_standalone"]
 
 
-def _format_time(iso_str: str) -> str:
-    """Convert ISO timestamp to human-friendly format."""
-    try:
-        dt = datetime.fromisoformat(iso_str)
-        now = datetime.now(timezone.utc)
-        if dt.date() == now.date():
-            return dt.strftime("%H:%M")
-        if dt.date() == (now - timedelta(days=1)).date():
-            return f"Yesterday {dt.strftime('%H:%M')}"
-        return dt.strftime("%d %b %H:%M")
-    except (ValueError, TypeError):
-        return str(iso_str)
+def _make_format_time(local_tz: ZoneInfo):
+    """Create a format_time filter bound to a local timezone."""
+
+    def format_time(iso_str: str) -> str:
+        """Convert ISO timestamp to human-friendly local time."""
+        try:
+            dt = datetime.fromisoformat(iso_str).astimezone(local_tz)
+            now = datetime.now(local_tz)
+            if dt.date() == now.date():
+                return dt.strftime("%H:%M")
+            if dt.date() == (now - timedelta(days=1)).date():
+                return f"Yesterday {dt.strftime('%H:%M')}"
+            return dt.strftime("%d %b %H:%M")
+        except (ValueError, TypeError):
+            return str(iso_str)
+
+    return format_time
 
 
 def create_app(config: Config) -> FastAPI:
@@ -35,7 +41,7 @@ def create_app(config: Config) -> FastAPI:
 
     template_dir = Path(__file__).parent.parent / "templates"
     templates = Jinja2Templates(directory=str(template_dir))
-    templates.env.filters["format_time"] = _format_time
+    templates.env.filters["format_time"] = _make_format_time(config.tz)
 
     static_dir = Path(__file__).parent.parent / "static"
     if static_dir.exists():

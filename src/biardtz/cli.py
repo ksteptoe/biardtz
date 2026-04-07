@@ -55,12 +55,12 @@ def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashb
     """biardtz — real-time bird identification on Raspberry Pi."""
     _setup_logging(verbose)
 
-    lat, lon = Config.latitude, Config.longitude  # London defaults
+    lat, lon, tz_name = Config.latitude, Config.longitude, Config.tz_name
     if location and location != "London":
         from .geocode import resolve_location
         try:
-            lat, lon, display = resolve_location(location)
-            click.echo(f"Location: {display} ({lat:.4f}, {lon:.4f})")
+            lat, lon, display, tz_name = resolve_location(location)
+            click.echo(f"Location: {display} ({lat:.4f}, {lon:.4f}, {tz_name})")
         except ValueError as exc:
             raise click.BadParameter(str(exc), param_hint="'--location'") from exc
 
@@ -68,6 +68,7 @@ def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashb
         latitude=lat,
         longitude=lon,
         location_name=location,
+        tz_name=tz_name,
         array_bearing=array_bearing,
         confidence_threshold=threshold,
         db_path=Path(db_path),

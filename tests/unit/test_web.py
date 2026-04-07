@@ -6,11 +6,12 @@ import asyncio
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
+from zoneinfo import ZoneInfo
 
 import httpx
 
 from biardtz.config import Config
-from biardtz.web import _format_time, create_app
+from biardtz.web import _make_format_time, create_app
 from biardtz.web import db as web_db
 from biardtz.web.image_cache import _slug
 
@@ -183,33 +184,38 @@ class TestSpeciesStats:
 
 
 # ---------------------------------------------------------------------------
-# _format_time
+# _make_format_time (timezone-aware)
 # ---------------------------------------------------------------------------
 class TestFormatTime:
+    _format_time = staticmethod(_make_format_time(ZoneInfo("Europe/London")))
+
     def test_today_shows_time_only(self):
-        now = datetime.now(timezone.utc)
-        iso = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        result = _format_time(iso)
+        local_tz = ZoneInfo("Europe/London")
+        now = datetime.now(local_tz)
+        iso = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        result = self._format_time(iso)
         assert result == now.strftime("%H:%M")
 
     def test_yesterday_shows_prefix(self):
-        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
-        iso = yesterday.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        result = _format_time(iso)
+        local_tz = ZoneInfo("Europe/London")
+        yesterday = datetime.now(local_tz) - timedelta(days=1)
+        iso = yesterday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        result = self._format_time(iso)
         assert result.startswith("Yesterday ")
         assert yesterday.strftime("%H:%M") in result
 
     def test_older_date_shows_day_month(self):
-        old = datetime.now(timezone.utc) - timedelta(days=10)
-        iso = old.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        result = _format_time(iso)
+        local_tz = ZoneInfo("Europe/London")
+        old = datetime.now(local_tz) - timedelta(days=10)
+        iso = old.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        result = self._format_time(iso)
         assert old.strftime("%d %b") in result
 
     def test_invalid_string_returned_as_is(self):
-        assert _format_time("not-a-date") == "not-a-date"
+        assert self._format_time("not-a-date") == "not-a-date"
 
     def test_none_returned_as_string(self):
-        assert _format_time(None) == "None"
+        assert self._format_time(None) == "None"
 
 
 # ---------------------------------------------------------------------------
