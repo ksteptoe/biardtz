@@ -1,9 +1,12 @@
 """Tests for biardtz.cli."""
 
+import signal
+import subprocess
 import sys
 import types
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from biardtz.cli import cli
@@ -73,3 +76,48 @@ class TestCliRun:
         assert mock_asyncio_run.called
         coro = mock_asyncio_run.call_args[0][0]
         coro.close()
+
+
+class TestCliSignalHandling:
+    """CLI should exit cleanly (code 0) when terminated by SIGTERM/SIGINT."""
+
+    @patch("biardtz.cli.asyncio.run", side_effect=KeyboardInterrupt)
+    def test_keyboard_interrupt_exits_cleanly(self, mock_asyncio_run):
+        _ensure_main_importable()
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--no-dashboard"])
+        assert result.exit_code == 0
+
+    @patch("biardtz.cli.asyncio.run", side_effect=SystemExit(0))
+    def test_system_exit_zero_exits_cleanly(self, mock_asyncio_run):
+        _ensure_main_importable()
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--no-dashboard"])
+        assert result.exit_code == 0
+
+    @pytest.mark.integration
+    def test_sigterm_exits_cleanly(self):
+        """Spawn biardtz as a subprocess, send SIGTERM, expect exit code 0."""
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "biardtz", "--no-dashboard", "--db-path", "/tmp/biardtz_sigterm_test.db"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            # Give it time to start up (model loading can take 10-15s on Pi)
+            proc.wait(timeout=20)
+            # If it exits before we signal, it hit an import/setup error —
+            # skip rather than false-fail (e.g. no audio device on CI)
+            pytest.skip(f"Process exited early with code {proc.returncode}")
+        except subprocess.TimeoutExpired:
+            pass  # Still running — good
+
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            pytest.fail("biardtz did not exit within 10s of SIGTERM")
+
+        assert proc.returncode == 0, f"Expected exit code 0 after SIGTERM, got {proc.returncode}"
