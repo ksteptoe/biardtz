@@ -214,7 +214,7 @@ def check_storage():
         )
         fstype = result.stdout.strip()
         if fstype == "ext4":
-            print(f"  PASS: filesystem is ext4")
+            print("  PASS: filesystem is ext4")
         else:
             print(f"  WARN: filesystem is {fstype} (ext4 recommended for SQLite WAL)")
             ok = False
@@ -253,7 +253,7 @@ def check_storage():
         pass
 
     if ok:
-        print(f"PASS: SSD storage ready")
+        print("PASS: SSD storage ready")
     return ok
 
 

@@ -89,7 +89,10 @@ async def run(config: Config) -> None:
 
     tasks = [
         asyncio.create_task(audio_producer(config, audio_queue), name="audio"),
-        asyncio.create_task(_detection_worker(detector, audio_queue, det_logger, dashboard_queue, config), name="worker"),
+        asyncio.create_task(
+            _detection_worker(detector, audio_queue, det_logger, dashboard_queue, config),
+            name="worker",
+        ),
     ]
     if config.enable_dashboard and dashboard_queue is not None:
         dashboard = Dashboard()

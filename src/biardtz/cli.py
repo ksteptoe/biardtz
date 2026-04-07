@@ -33,8 +33,8 @@ def _setup_logging(verbosity: int) -> None:
 
 @click.command()
 @click.version_option(__version__, "--version")
-@click.option("--location", "-l", type=str, default=None,
-              help="Town or city name for species filtering (e.g. 'Biarritz, France')")
+@click.option("--location", "-l", type=str, default="London", show_default=True,
+              help="Town or city name for species filtering")
 @click.option("--threshold", type=float, default=0.25, show_default=True, help="Minimum confidence (0.0–1.0)")
 @click.option(
     "--db-path",
@@ -53,8 +53,8 @@ def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashb
     """biardtz — real-time bird identification on Raspberry Pi."""
     _setup_logging(verbose)
 
-    lat, lon = Config.latitude, Config.longitude  # defaults
-    if location:
+    lat, lon = Config.latitude, Config.longitude  # London defaults
+    if location and location != "London":
         from .geocode import resolve_location
         try:
             lat, lon, display = resolve_location(location)

@@ -10,7 +10,7 @@
 
 **Author:** Kevin Steptoe
 **Start date:** March 2026
-**Status:** Hardware procurement complete — core software implemented — CI pipeline active
+**Status:** Hardware deployed — v0.1.0 released — SSD and BirdNET running on Pi
 
 ---
 
@@ -171,6 +171,7 @@ biardtz/                         # Repository root (PyScaffold layout)
 │   ├── detector.py             # BirdNET TFLite wrapper
 │   ├── logger.py               # aiosqlite detection logger + schema
 │   ├── dashboard.py            # Rich live terminal dashboard
+│   ├── doa.py                  # Direction of Arrival (GCC-PHAT on mic array)
 │   ├── main.py                 # Async orchestrator — wires all pipeline stages
 │   └── api.py                  # Public Python API
 ├── docs/                       # Sphinx documentation (MyST Markdown)
@@ -196,8 +197,12 @@ biardtz/                         # Repository root (PyScaffold layout)
 - [x] Unit and integration test suites
 - [x] GitHub Actions CI (Ruff lint + pytest on Python 3.12/3.13)
 - [x] Makefile with incremental test caching and release automation
-- [ ] Raspberry Pi OS flash and initial setup
-- [ ] BirdNET-Analyzer installation on Pi
+- [x] Raspberry Pi OS flash and initial setup
+- [x] BirdNET-Analyzer installation on Pi
+- [x] SSD formatted, mounted, and verified
+- [x] Database resilience (backup, export, vacuum)
+- [x] Location geocoding
+- [x] Direction of Arrival estimation
 - [ ] First live detection test
 - [ ] Systemd service for auto-start on boot
 - [ ] Validate detection accuracy against known local species
@@ -296,11 +301,13 @@ pip install -e . --break-system-packages
 
 ### 5. Configure
 
-Configuration is handled via CLI options. At minimum, set your latitude and longitude when running:
+Configuration is handled via CLI options. At minimum, set your location when running:
 
 ```bash
-biardtz --lat 51.50 --lon -0.12
+biardtz --location "Biarritz, France"
 ```
+
+This geocodes the place name to coordinates using OpenStreetMap (requires network on first run). You can also pass raw coordinates with `--lat` / `--lon` if preferred.
 
 Find your microphone device index:
 
@@ -313,7 +320,7 @@ print(sd.query_devices())
 ### 6. Run
 
 ```bash
-biardtz --lat 51.50 --lon -0.12 --device 2
+biardtz --location "Biarritz, France" --device 2
 ```
 
 Run `biardtz --help` for all available options.
@@ -332,7 +339,7 @@ After=network.target
 [Service]
 User=pi
 WorkingDirectory=/home/pi/biardtz
-ExecStart=/usr/local/bin/biardtz --lat 51.50 --lon -0.12
+ExecStart=/usr/local/bin/biardtz --location "Biarritz, France"
 Restart=always
 RestartSec=10
 
@@ -355,10 +362,12 @@ sudo systemctl start biardtz
 | `channels` | 6 | ReSpeaker hardware fixed at 6 channels; channel 0 extracted for mono |
 | `chunk_duration` | 3.0 | BirdNET window size in seconds |
 | `confidence_threshold` | 0.25 | Lower = more detections, more false positives |
-| `latitude` / `longitude` | 51.50 / -0.12 | **Set to your location** via `--lat` / `--lon` |
+| `location_name` | (none) | Place name for geocoding via `--location` / `-l` |
+| `latitude` / `longitude` | 51.50 / -0.12 | Auto-set from `--location`, or manual via `--lat` / `--lon` |
 | `week` | -1 | -1 disables seasonal filter; set to ISO week for better accuracy |
 | `num_threads` | 4 | Pi 5 has 4 cores — leave at 4 |
 | `db_path` | `/mnt/ssd/detections.db` | Override via `--db-path` |
+| `array_bearing` | 0.0 | Physical bearing of mic array (degrees from north) via `--array-bearing` |
 
 ---
 
@@ -372,7 +381,9 @@ CREATE TABLE detections (
     sci_name      TEXT NOT NULL,
     confidence    REAL NOT NULL,      -- 0.0 to 1.0
     latitude      REAL,
-    longitude     REAL
+    longitude     REAL,
+    bearing       REAL,              -- degrees from north (0-360), nullable
+    direction     TEXT               -- compass direction (N, NE, E, etc.), nullable
 );
 ```
 
@@ -389,6 +400,85 @@ GROUP BY common_name ORDER BY COUNT(*) DESC;
 SELECT DISTINCT common_name, MIN(timestamp) as first_seen
 FROM detections ORDER BY first_seen;
 ```
+
+---
+
+## Session Log — 2026-04-07
+
+### BirdNET-Analyzer Model Fix
+
+The BirdNET `checkpoints/` directory was a broken symlink pointing into `site-packages`, left over from a pip install. Replaced it with a real directory and downloaded the V2.4 TFLite model files using BirdNET's built-in `ensure_model_exists()` function, which handles checksums and caching correctly.
+
+Also fixed the `verify` script to invoke `sys.executable -m biardtz` instead of the bare `biardtz` command — the latter resolved to a conda environment that lacked BirdNET dependencies.
+
+### Clean SIGTERM Shutdown
+
+`asyncio.run()` was propagating `CancelledError` on SIGTERM, causing exit code 1 even though shutdown was intentional. Added exception handling in `cli.py` to catch `CancelledError` and `KeyboardInterrupt`, returning exit code 0 for clean stops.
+
+Added unit and integration tests: the integration test spawns a subprocess, sends SIGTERM, and asserts exit code 0.
+
+### SSD Setup (Samsung T7 1TB)
+
+The Samsung T7 arrived factory-formatted as exFAT, which is unsuitable for SQLite WAL mode (no POSIX advisory locking). Reformatted as ext4:
+
+```bash
+sudo mkfs.ext4 -L biardtz_ssd /dev/sda1
+```
+
+Mounted at `/mnt/ssd` with a UUID-based fstab entry using `nofail,noatime` flags. Added `make verify-storage` target that checks mount status, filesystem type, permissions, available space, and fstab presence. Copied the initial empty-schema database to `/mnt/ssd/detections.db`.
+
+### Database Resilience
+
+Hardened the SQLite connection in `logger.py`:
+- `PRAGMA busy_timeout=5000` — wait up to 5 seconds on lock contention instead of failing immediately
+- `PRAGMA synchronous=NORMAL` — reduces fsync frequency (WAL mode already provides crash safety)
+- Non-blocking integrity check on startup (logs a warning on corruption, does not block the pipeline)
+
+New scripts:
+- **`scripts/db_backup.py`** — uses SQLite's online backup API (safe while biardtz is running), 7-day rotation of old backups
+- **`scripts/db_export_csv.py`** — read-only streaming export with `--since` date filter
+
+New Makefile targets: `db-backup`, `db-export`, `db-vacuum`. Added `cron-install` target to `Makefile.pi` for daily 03:00 UTC automated backups.
+
+### Location Geocoding
+
+Replaced the `--lat`/`--lon` CLI options with `--location`/`-l`, which accepts human-readable place names:
+
+```bash
+biardtz --location "Biarritz, France"
+```
+
+Uses `geopy` with the Nominatim geocoder (OpenStreetMap — free, no API key required). The resolved coordinates are passed to BirdNET for species filtering. Added `location_name` field to `Config`. Defaults remain London (51.50, -0.12) when no location is specified.
+
+### Direction of Arrival (DOA)
+
+Added compass direction estimation for detected birds using GCC-PHAT (Generalized Cross-Correlation with Phase Transform) on the ReSpeaker 4-Mic Array's raw channels.
+
+New module `doa.py` implements a steering-vector scan across all 6 microphone pairs. Audio capture now passes `(mono, multichannel)` tuples through the pipeline — BirdNET still receives mono only, while DOA runs in an executor and is only invoked when detections are found above the confidence threshold.
+
+Added `--array-bearing` CLI option to set the array's physical orientation (degrees from north), so compass directions are absolute rather than relative.
+
+Database schema extended with two new columns:
+```sql
+ALTER TABLE detections ADD COLUMN bearing REAL;
+ALTER TABLE detections ADD COLUMN direction TEXT;
+```
+Migration is backward-compatible — existing rows get NULL values. The Rich dashboard now includes a direction column.
+
+**Released as v0.1.0.**
+
+### Phase 1 Progress Update
+
+Updated checklist:
+- [x] Raspberry Pi OS flash and initial setup
+- [x] BirdNET-Analyzer installation on Pi
+- [x] SSD formatted, mounted, and verified
+- [x] Database resilience (backup, export, vacuum)
+- [x] Location geocoding via `--location` flag
+- [x] Direction of Arrival estimation
+- [ ] First live detection test
+- [ ] Systemd service for auto-start on boot
+- [ ] Validate detection accuracy against known local species
 
 ---
 

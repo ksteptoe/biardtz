@@ -24,7 +24,10 @@ def export(db_path: Path, output: Path, since: str | None) -> None:
 
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        query = "SELECT id, timestamp, common_name, sci_name, confidence, latitude, longitude, bearing, direction FROM detections"
+        query = (
+            "SELECT id, timestamp, common_name, sci_name, confidence,"
+            " latitude, longitude, bearing, direction FROM detections"
+        )
         params: tuple = ()
         if since:
             query += " WHERE timestamp >= ?"

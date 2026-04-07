@@ -6,8 +6,8 @@ import pytest
 from biardtz.doa import (
     _RADIUS_M,
     _SPEED_OF_SOUND,
-    _gcc_phat,
     _estimate_tdoa,
+    _gcc_phat,
     bearing_to_octant,
     estimate_doa,
 )

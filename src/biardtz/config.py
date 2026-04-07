@@ -15,7 +15,7 @@ class Config:
     confidence_threshold: float = 0.25
     latitude: float = 51.50
     longitude: float = -0.12
-    location_name: str | None = None
+    location_name: str = "London"
     array_bearing: float = 0.0  # compass bearing (degrees) that mic 0 faces; 0=North
     week: int = -1
     num_threads: int = 4
