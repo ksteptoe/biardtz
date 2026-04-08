@@ -18,6 +18,7 @@ by default and lets you include documentation from docstrings. Docstrings can be
 :maxdepth: 2
 
 Overview <readme>
+User Guide <user_guide>
 Deployment Guide <deployment_guide>
 Pi Network Setup <pi_network_setup>
 Build Log <build_log>
