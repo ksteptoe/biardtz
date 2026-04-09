@@ -1,11 +1,14 @@
 {% for det in detections %}
 <div class="bg-white rounded-xl shadow-sm mb-3 flex items-center p-3 gap-4">
     <!-- Bird image -->
-    <img src="/api/image/{{ det.sci_name | urlencode }}"
-         alt="{{ det.common_name }}"
-         class="w-16 h-16 rounded-lg object-cover flex-shrink-0 bg-stone-100"
-         loading="lazy"
-         onerror="this.src='/static/fallback-bird.svg'">
+    <a href="https://en.wikipedia.org/wiki/{{ det.sci_name | replace(' ', '_') }}"
+       target="_blank" rel="noopener" class="flex-shrink-0">
+        <img src="/api/image/{{ det.sci_name | urlencode }}"
+             alt="{{ det.common_name }}"
+             class="w-16 h-16 rounded-lg object-cover bg-stone-100 hover:ring-2 hover:ring-emerald-400 transition"
+             loading="lazy"
+             onerror="this.src='/static/fallback-bird.svg'">
+    </a>
 
     <!-- Info -->
     <div class="flex-1 min-w-0">
