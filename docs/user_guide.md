@@ -19,6 +19,12 @@ You can see what it's detected through a web page on your phone, tablet, or comp
 
    You can also try: **http://kspi-002.local:8080**
 
+   If you're **away from home**, use Tailscale (a free app) on your phone or computer to access it from anywhere:
+
+   ```
+   http://100.74.44.10:8080
+   ```
+
 That's it! You should see the bird dashboard showing recent detections.
 
 ## What you'll see

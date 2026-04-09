@@ -419,7 +419,56 @@ This is useful for browsing historical detections without starting audio capture
 
 Bird photos are fetched from Wikipedia/Wikidata and cached on the SSD. A fallback silhouette is shown when no photo is available.
 
-## Step 11: Run biardtz
+## Step 11: Remote access with Tailscale
+
+Tailscale lets you access the web dashboard from anywhere — not just your home network. It creates a secure VPN tunnel with no port forwarding or firewall changes needed.
+
+### Install on the Pi
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+```
+
+The second command prints an authentication URL. Open it in a browser on any device to log in (Google, Microsoft, GitHub, etc.).
+
+### Check your Tailscale IP
+
+```bash
+tailscale status
+```
+
+Note the IP (e.g. `100.x.x.x`) — this is your Pi's Tailscale address.
+
+### Install on other devices
+
+Install Tailscale on any device you want to use remotely:
+
+- **Windows / Mac:** Download from [tailscale.com/download](https://tailscale.com/download)
+- **iPhone / Android:** Install from the App Store or Google Play
+
+Sign in with the same account on each device.
+
+### Access the dashboard remotely
+
+Once both devices are on Tailscale, open:
+
+```
+http://<tailscale-ip>:8080
+```
+
+This works from anywhere — home, work, or mobile data.
+
+### Summary of access methods
+
+| Location | URL |
+|----------|-----|
+| Home network | `http://kspi-002.local:8080` or `http://192.168.1.124:8080` |
+| Anywhere (Tailscale) | `http://<tailscale-ip>:8080` |
+
+Tailscale starts automatically at boot (`tailscaled.service` is enabled by default).
+
+## Step 12: Run biardtz
 
 ### Basic usage
 
@@ -455,7 +504,7 @@ biardtz \
 | `--web-port` | 8080 | Port for the web dashboard |
 | `-v` / `-vv` | warnings only | Verbosity: `-v` info, `-vv` debug |
 
-## Step 12: Run as a service (optional)
+## Step 13: Run as a service (optional)
 
 To run biardtz automatically on boot, create a systemd service:
 
