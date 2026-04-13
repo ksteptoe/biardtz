@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import os
+import socket
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,26 @@ from pathlib import Path
 _logger = logging.getLogger(__name__)
 
 DEFAULT_HEALTH_DIR = Path("/mnt/ssd/biardtz")
+
+
+def _sd_notify(msg: bytes) -> None:
+    """Send a notification to systemd if NOTIFY_SOCKET is set.
+
+    This is a minimal sd_notify implementation — avoids adding an external
+    dependency just for one socket write.
+    """
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return
+    if addr[0] == "@":
+        addr = "\0" + addr[1:]  # abstract socket
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.connect(addr)
+        sock.sendall(msg)
+        sock.close()
+    except OSError:
+        _logger.debug("sd_notify failed", exc_info=True)
 HEARTBEAT_FILE = "heartbeat.json"
 HEARTBEAT_INTERVAL = 10  # seconds
 
@@ -93,6 +114,7 @@ class HealthMonitor:
         while True:
             try:
                 self._write_heartbeat()
+                _sd_notify(b"WATCHDOG=1")
             except Exception:
                 _logger.warning("Failed to write heartbeat", exc_info=True)
             await asyncio.sleep(HEARTBEAT_INTERVAL)

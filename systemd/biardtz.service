@@ -1,0 +1,38 @@
+[Unit]
+Description=biardtz — real-time bird identification
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kevin
+Group=kevin
+WorkingDirectory=/home/kevin/py/biardtz
+
+# Use the venv Python directly
+ExecStart=/home/kevin/py/biardtz/.venv/bin/biardtz --no-dashboard -v
+ExecStop=/bin/kill -SIGTERM $MAINPID
+
+# Health check via heartbeat file
+# systemd watchdog: biardtz writes heartbeat every 10s, watchdog at 60s
+WatchdogSec=60
+
+# Restart on failure with increasing delay
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+# Audio device access
+SupplementaryGroups=audio
+
+# Logging goes to journal (and to file via biardtz's own RotatingFileHandler)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=biardtz
+
+[Install]
+WantedBy=multi-user.target
