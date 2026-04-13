@@ -153,5 +153,167 @@ def status():
             click.echo(f"    {err}")
 
 
+@cli.command()
+def diagnose():
+    """Diagnose connection and pipeline issues."""
+    import os
+    import shutil
+    import subprocess
+    from datetime import datetime, timezone
+
+    from .health import read_heartbeat
+
+    ok_mark = click.style("OK", fg="green")
+    warn_mark = click.style("WARN", fg="yellow")
+    fail_mark = click.style("FAIL", fg="red")
+
+    click.echo(click.style("=== biardtz diagnostics ===", bold=True))
+    click.echo()
+
+    # 1. Check if biardtz process is running
+    click.echo(click.style("Pipeline:", bold=True))
+    hb = read_heartbeat()
+    if hb is None:
+        click.echo(f"  Process:        {fail_mark} — no heartbeat file found")
+    else:
+        pid = hb.get("pid")
+        try:
+            os.kill(pid, 0)
+            click.echo(f"  Process:        {ok_mark} — PID {pid} alive")
+        except (OSError, TypeError):
+            click.echo(f"  Process:        {fail_mark} — PID {pid} not running")
+
+        hb_time = hb.get("heartbeat", "")
+        if hb_time:
+            try:
+                hb_dt = datetime.fromisoformat(hb_time)
+                age = (datetime.now(timezone.utc) - hb_dt).total_seconds()
+                if age < 30:
+                    click.echo(f"  Heartbeat:      {ok_mark} — {int(age)}s ago")
+                elif age < 120:
+                    click.echo(f"  Heartbeat:      {warn_mark} — {int(age)}s ago (stale)")
+                else:
+                    mins = int(age // 60)
+                    click.echo(f"  Heartbeat:      {fail_mark} — {mins}m ago (dead)")
+            except ValueError:
+                click.echo(f"  Heartbeat:      {warn_mark} — unparseable")
+
+        status_val = hb.get("status", "unknown")
+        colors = {"ok": "green", "degraded": "yellow", "stopped": "red"}
+        click.echo(f"  Status:         {click.style(status_val, fg=colors.get(status_val, 'red'))}")
+
+    # 2. Systemd service
+    click.echo()
+    click.echo(click.style("Systemd:", bold=True))
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-enabled", "biardtz"], capture_output=True, text=True
+        )
+        enabled = r.stdout.strip() == "enabled"
+        click.echo(f"  Service:        {ok_mark if enabled else warn_mark} — {r.stdout.strip()}")
+    except FileNotFoundError:
+        click.echo(f"  Service:        {warn_mark} — systemctl not found")
+        enabled = False
+
+    if enabled:
+        r = subprocess.run(
+            ["systemctl", "is-active", "biardtz"], capture_output=True, text=True
+        )
+        active = r.stdout.strip()
+        mark = ok_mark if active == "active" else fail_mark
+        click.echo(f"  Active:         {mark} — {active}")
+    else:
+        click.echo(f"  Active:         {warn_mark} — not installed")
+        click.echo(click.style(
+            "  Tip: sudo bash systemd/install.sh", fg="cyan"
+        ))
+
+    # 3. Tailscale
+    click.echo()
+    click.echo(click.style("Tailscale:", bold=True))
+    if shutil.which("tailscale"):
+        r = subprocess.run(
+            ["systemctl", "is-active", "tailscaled"], capture_output=True, text=True
+        )
+        active = r.stdout.strip() == "active"
+        click.echo(f"  Daemon:         {ok_mark if active else fail_mark} — {'active' if active else 'inactive'}")
+
+        r = subprocess.run(
+            ["systemctl", "is-enabled", "tailscaled"], capture_output=True, text=True
+        )
+        enabled = r.stdout.strip() == "enabled"
+        click.echo(f"  Auto-start:     {ok_mark if enabled else warn_mark} — {'enabled' if enabled else 'disabled'}")
+    else:
+        click.echo(f"  Tailscale:      {warn_mark} — not installed")
+
+    # 4. Audio device
+    click.echo()
+    click.echo(click.style("Audio:", bold=True))
+    try:
+        r = subprocess.run(["arecord", "-l"], capture_output=True, text=True)
+        if "ReSpeaker" in r.stdout:
+            click.echo(f"  ReSpeaker:      {ok_mark} — detected")
+        elif "card" in r.stdout:
+            click.echo(f"  Audio device:   {warn_mark} — found but not ReSpeaker")
+        else:
+            click.echo(f"  Audio device:   {fail_mark} — no capture devices")
+    except FileNotFoundError:
+        click.echo(f"  arecord:        {warn_mark} — not installed")
+
+    # 5. Recent errors from log
+    click.echo()
+    click.echo(click.style("Recent errors:", bold=True))
+    log_path = DEFAULT_LOG_DIR / "biardtz.log"
+    if log_path.exists():
+        try:
+            lines = log_path.read_text().splitlines()
+            errors = [line for line in lines[-100:] if "ERROR" in line]
+            if errors:
+                for err in errors[-5:]:
+                    click.echo(f"  {err}")
+            else:
+                click.echo(f"  {ok_mark} — no recent errors")
+        except OSError:
+            click.echo(f"  {warn_mark} — could not read log")
+    else:
+        click.echo(f"  {warn_mark} — no log file at {log_path}")
+
+    # 6. Summary / recommendations
+    click.echo()
+    click.echo(click.style("Recommendations:", bold=True))
+    if hb and hb.get("pid"):
+        try:
+            os.kill(hb["pid"], 0)
+        except (OSError, TypeError):
+            click.echo("  - Pipeline is dead. Restart with: biardtz -v")
+            click.echo("    Or if systemd service is installed: sudo systemctl start biardtz")
+
+    # Check if running in foreground (not systemd)
+    if hb and hb.get("pid"):
+        try:
+            os.kill(hb["pid"], 0)
+            # Check if it's a child of sshd (foreground session)
+            r = subprocess.run(
+                ["ps", "-o", "ppid=", "-p", str(hb["pid"])],
+                capture_output=True, text=True,
+            )
+            ppid = r.stdout.strip()
+            if ppid:
+                r2 = subprocess.run(
+                    ["ps", "-o", "comm=", "-p", ppid],
+                    capture_output=True, text=True,
+                )
+                parent = r2.stdout.strip()
+                if parent in ("sshd", "bash", "zsh", "sh"):
+                    click.echo(
+                        "  - Running in foreground SSH session — will die if SSH drops!"
+                    )
+                    click.echo(
+                        "    Fix: install systemd service with: sudo bash systemd/install.sh"
+                    )
+        except (OSError, TypeError):
+            pass
+
+
 if __name__ == "__main__":
     cli()
