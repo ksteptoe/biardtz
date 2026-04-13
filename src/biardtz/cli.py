@@ -54,7 +54,7 @@ def _setup_logging(verbosity: int, log_dir: Path = DEFAULT_LOG_DIR) -> None:
     )
 
 
-@click.command()
+@click.group(invoke_without_command=True)
 @click.version_option(__version__, "--version")
 @click.option("--location", "-l", type=str, default="London", show_default=True,
               help="Town or city name for species filtering")
@@ -74,8 +74,13 @@ def _setup_logging(verbosity: int, log_dir: Path = DEFAULT_LOG_DIR) -> None:
 @click.option("--web/--no-web", default=True, show_default=True, help="Enable web dashboard")
 @click.option("--web-port", type=int, default=8080, show_default=True, help="Web dashboard port")
 @click.option("-v", "--verbose", count=True, help="-v for info, -vv for debug")
-def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, web, web_port, verbose):
+@click.pass_context
+def cli(ctx, location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, web, web_port, verbose):
     """biardtz — real-time bird identification on Raspberry Pi."""
+    # If a subcommand was invoked, skip the main pipeline
+    if ctx.invoked_subcommand is not None:
+        return
+
     _setup_logging(verbose)
 
     lat, lon, tz_name = Config.latitude, Config.longitude, Config.tz_name
@@ -111,6 +116,41 @@ def cli(location, threshold, db_path, device, birdnet_path, array_bearing, dashb
         asyncio.run(run(config))
     except (KeyboardInterrupt, SystemExit):
         pass
+
+
+@cli.command()
+def status():
+    """Show pipeline health status from the heartbeat file."""
+    from .health import read_heartbeat
+
+    hb = read_heartbeat()
+    if hb is None:
+        click.echo("No heartbeat found — pipeline is not running or never started.")
+        raise SystemExit(1)
+
+    status_val = hb.get("status", "unknown")
+    colors = {"ok": "green", "degraded": "yellow", "stopped": "red"}
+    color = colors.get(status_val, "red")
+    click.echo(click.style(f"Status: {status_val}", fg=color, bold=True))
+    click.echo(f"  PID:            {hb.get('pid', '?')}")
+    click.echo(f"  Started:        {hb.get('started', '?')}")
+
+    uptime = hb.get("uptime_seconds", 0)
+    hours, rem = divmod(uptime, 3600)
+    mins, secs = divmod(rem, 60)
+    click.echo(f"  Uptime:         {int(hours)}h {int(mins)}m {int(secs)}s")
+
+    click.echo(f"  Audio stream:   {hb.get('audio_stream', '?')}")
+    click.echo(f"  Detections:     {hb.get('detections', 0)}")
+    click.echo(f"  Species:        {hb.get('species', 0)}")
+    click.echo(f"  Last detection: {hb.get('last_detection', 'none')}")
+    click.echo(f"  Heartbeat:      {hb.get('heartbeat', '?')}")
+
+    errors = hb.get("recent_errors", [])
+    if errors:
+        click.echo(click.style("  Recent errors:", fg="yellow"))
+        for err in errors:
+            click.echo(f"    {err}")
 
 
 if __name__ == "__main__":

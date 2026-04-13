@@ -74,6 +74,57 @@ class TestCliRun:
         coro.close()
 
 
+class TestCliStatus:
+    def test_status_no_heartbeat(self, tmp_path):
+        runner = CliRunner()
+        with patch("biardtz.health.read_heartbeat", return_value=None):
+            result = runner.invoke(cli, ["status"])
+        assert result.exit_code == 1
+        assert "not running" in result.output
+
+    def test_status_ok(self, tmp_path):
+        heartbeat = {
+            "status": "ok",
+            "pid": 1234,
+            "started": "2026-04-13T10:00:00+00:00",
+            "uptime_seconds": 3661,
+            "audio_stream": "ok",
+            "detections": 42,
+            "species": 5,
+            "last_detection": "2026-04-13T11:00:00+00:00",
+            "heartbeat": "2026-04-13T11:01:01+00:00",
+            "recent_errors": [],
+        }
+        with patch("biardtz.health.read_heartbeat", return_value=heartbeat):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["status"])
+        assert result.exit_code == 0
+        assert "ok" in result.output
+        assert "1234" in result.output
+        assert "42" in result.output
+        assert "1h 1m 1s" in result.output
+
+    def test_status_with_errors(self):
+        heartbeat = {
+            "status": "degraded",
+            "pid": 5678,
+            "started": "2026-04-13T10:00:00+00:00",
+            "uptime_seconds": 60,
+            "audio_stream": "disconnected",
+            "detections": 0,
+            "species": 0,
+            "last_detection": None,
+            "heartbeat": "2026-04-13T10:01:00+00:00",
+            "recent_errors": ["[10:00:30] Audio stream failed: device not found"],
+        }
+        with patch("biardtz.health.read_heartbeat", return_value=heartbeat):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["status"])
+        assert result.exit_code == 0
+        assert "degraded" in result.output
+        assert "device not found" in result.output
+
+
 class TestCliSignalHandling:
     """CLI should exit cleanly (code 0) when terminated by SIGTERM/SIGINT."""
 
