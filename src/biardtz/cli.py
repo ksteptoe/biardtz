@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import click
@@ -20,14 +21,36 @@ __author__ = "Kevin Steptoe"
 __copyright__ = "Kevin Steptoe"
 __license__ = "MIT"
 
+DEFAULT_LOG_DIR = Path("/mnt/ssd/biardtz/logs")
 
-def _setup_logging(verbosity: int) -> None:
+
+def _setup_logging(verbosity: int, log_dir: Path = DEFAULT_LOG_DIR) -> None:
     level = {0: logging.WARNING, 1: logging.INFO}.get(verbosity, logging.DEBUG)
+
+    fmt = "[%(asctime)s] %(levelname)s:%(name)s: %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+
+    # Always log to file at INFO level (even if console is WARNING)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            log_dir / "biardtz.log",
+            maxBytes=5 * 1024 * 1024,  # 5 MB per file
+            backupCount=5,
+        )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+        handlers.append(file_handler)
+    except OSError as exc:
+        print(f"Warning: could not set up file logging at {log_dir}: {exc}", file=sys.stderr)
+
     logging.basicConfig(
-        level=level,
-        stream=sys.stdout,
-        format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        level=min(level, logging.INFO),
+        handlers=handlers,
+        format=fmt,
+        datefmt=datefmt,
     )
 
 

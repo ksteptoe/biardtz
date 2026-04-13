@@ -9,6 +9,7 @@ from .config import Config
 from .dashboard import Dashboard
 from .detector import Detector
 from .doa import estimate_doa
+from .health import HealthMonitor
 from .logger import DetectionLogger
 
 _logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ async def _detection_worker(
     det_logger: DetectionLogger,
     dashboard_queue: asyncio.Queue | None,
     config: Config | None = None,
+    health: HealthMonitor | None = None,
 ) -> None:
     while True:
         item = await audio_queue.get()
@@ -32,6 +34,8 @@ async def _detection_worker(
             detections = await detector.predict(chunk)
         except Exception:
             _logger.exception("Inference error")
+            if health:
+                health.record_error("Inference error")
             continue
 
         # Run DOA if we have detections and multichannel data
@@ -56,6 +60,8 @@ async def _detection_worker(
                 f" from {det.direction} ({det.bearing:.0f}\u00b0)" if det.direction else "",
             )
             await det_logger.log(det)
+            if health:
+                health.mark_detection()
             if dashboard_queue is not None:
                 await dashboard_queue.put(det)
 
@@ -65,6 +71,8 @@ async def run(config: Config) -> None:
     detector = Detector(config)
     det_logger = DetectionLogger(config)
     await det_logger.init_db()
+
+    health = HealthMonitor()
 
     audio_queue: asyncio.Queue = asyncio.Queue(maxsize=8)
     dashboard_queue: asyncio.Queue | None = asyncio.Queue(maxsize=32) if config.enable_dashboard else None
@@ -88,11 +96,14 @@ async def run(config: Config) -> None:
                  config.confidence_threshold * 100, loc)
 
     tasks = [
-        asyncio.create_task(audio_producer(config, audio_queue), name="audio"),
         asyncio.create_task(
-            _detection_worker(detector, audio_queue, det_logger, dashboard_queue, config),
+            audio_producer(config, audio_queue, health=health), name="audio",
+        ),
+        asyncio.create_task(
+            _detection_worker(detector, audio_queue, det_logger, dashboard_queue, config, health=health),
             name="worker",
         ),
+        asyncio.create_task(health.run(), name="health"),
     ]
     if config.enable_dashboard and dashboard_queue is not None:
         dashboard = Dashboard(local_tz=config.tz)
@@ -122,4 +133,5 @@ async def run(config: Config) -> None:
         summary = await det_logger.session_summary()
         _logger.info(summary)
         await det_logger.close()
+        health.cleanup()
         _logger.info("Shutdown complete")

@@ -11,15 +11,45 @@ from .config import Config
 
 _logger = logging.getLogger(__name__)
 
+# Reconnection parameters
+_INITIAL_BACKOFF = 2.0    # seconds
+_MAX_BACKOFF = 60.0       # seconds
+_BACKOFF_FACTOR = 2.0
 
-async def audio_producer(config: Config, out_queue: asyncio.Queue) -> None:
+
+async def audio_producer(config: Config, out_queue: asyncio.Queue, *, health=None) -> None:
     """Capture audio from the microphone and enqueue 3-second chunks.
 
     Each item placed on *out_queue* is a ``(mono, multichannel)`` tuple where
     *mono* is a 1-D float32 array (channel 0) and *multichannel* is either a
     ``(samples, 4)`` float32 array of raw mic channels or ``None`` when fewer
     than 5 hardware channels are available.
+
+    Automatically reconnects on stream errors with exponential backoff.
     """
+    backoff = _INITIAL_BACKOFF
+
+    while True:  # outer reconnection loop
+        try:
+            await _run_audio_stream(config, out_queue, health=health)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            msg = f"Audio stream failed: {exc}"
+            _logger.error("%s — reconnecting in %.0fs", msg, backoff)
+            if health:
+                health.mark_audio_ok(False)
+                health.record_error(msg)
+
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * _BACKOFF_FACTOR, _MAX_BACKOFF)
+        else:
+            # Clean exit (sentinel None received)
+            break
+
+
+async def _run_audio_stream(config: Config, out_queue: asyncio.Queue, *, health=None) -> None:
+    """Open one audio stream session and process until error or cancellation."""
     loop = asyncio.get_running_loop()
     has_multi = config.channels >= 5
     buf_mono = np.empty(0, dtype=np.float32)
@@ -54,6 +84,8 @@ async def audio_producer(config: Config, out_queue: asyncio.Queue) -> None:
     )
 
     stream.start()
+    if health:
+        health.mark_audio_ok(True)
     try:
         while True:
             item = await loop.run_in_executor(None, thread_q.get)
