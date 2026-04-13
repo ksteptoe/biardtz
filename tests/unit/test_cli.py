@@ -1,5 +1,6 @@
 """Tests for biardtz.cli."""
 
+import os
 import signal
 import subprocess
 import sys
@@ -123,6 +124,183 @@ class TestCliStatus:
         assert result.exit_code == 0
         assert "degraded" in result.output
         assert "device not found" in result.output
+
+
+class TestCliDiagnose:
+    """Tests for the ``biardtz diagnose`` command."""
+
+    def _heartbeat(self, **overrides):
+        """Return a default heartbeat dict, with optional overrides."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        hb = {
+            "status": "ok",
+            "pid": os.getpid(),  # use our own PID so os.kill(pid, 0) succeeds
+            "started": now,
+            "uptime_seconds": 100,
+            "audio_stream": "ok",
+            "detections": 10,
+            "species": 3,
+            "last_detection": now,
+            "heartbeat": now,
+            "recent_errors": [],
+        }
+        hb.update(overrides)
+        return hb
+
+    def _run_diagnose(self, heartbeat=None, systemctl_map=None, arecord_out="",
+                      tailscale_installed=True, log_content=None):
+        """Invoke ``biardtz diagnose`` with mocked externals."""
+        import subprocess as sp
+
+        runner = CliRunner()
+
+        # Default: all systemctl checks return "enabled"/"active"
+        if systemctl_map is None:
+            systemctl_map = {}
+
+        def fake_run(cmd, **kwargs):
+            if cmd[0] == "systemctl":
+                key = (cmd[1], cmd[2] if len(cmd) > 2 else "")
+                text = systemctl_map.get(key, "enabled\n")
+                return sp.CompletedProcess(cmd, 0, stdout=text, stderr="")
+            if cmd[0] == "arecord":
+                return sp.CompletedProcess(cmd, 0, stdout=arecord_out, stderr="")
+            if cmd[0] == "ps":
+                return sp.CompletedProcess(cmd, 0, stdout="systemd\n", stderr="")
+            return sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        def fake_which(name):
+            if name == "tailscale":
+                return "/usr/bin/tailscale" if tailscale_installed else None
+            return None
+
+        # Patch at the actual module level since diagnose() does local imports
+        patches = [
+            patch("subprocess.run", side_effect=fake_run),
+            patch("shutil.which", side_effect=fake_which),
+            patch("biardtz.health.read_heartbeat", return_value=heartbeat),
+        ]
+
+        # Mock log file existence
+        if log_content is not None:
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_path.read_text.return_value = log_content
+            patches.append(
+                patch("biardtz.cli.DEFAULT_LOG_DIR.__truediv__", return_value=mock_path)
+            )
+
+        for p in patches:
+            p.start()
+        try:
+            result = runner.invoke(cli, ["diagnose"])
+        finally:
+            for p in patches:
+                p.stop()
+        return result
+
+    def test_diagnose_no_heartbeat(self):
+        result = self._run_diagnose(heartbeat=None)
+        assert result.exit_code == 0
+        assert "no heartbeat file found" in result.output
+
+    def test_diagnose_process_alive(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(heartbeat=hb)
+        assert result.exit_code == 0
+        assert "alive" in result.output
+
+    def test_diagnose_process_dead(self):
+        hb = self._heartbeat(pid=999999999)  # unlikely to exist
+        result = self._run_diagnose(heartbeat=hb)
+        assert result.exit_code == 0
+        assert "not running" in result.output
+
+    def test_diagnose_heartbeat_fresh(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(heartbeat=hb)
+        assert result.exit_code == 0
+        assert "s ago" in result.output
+        # Should NOT say stale or dead
+        assert "stale" not in result.output
+        assert "dead" not in result.output
+
+    def test_diagnose_heartbeat_stale(self):
+        from datetime import datetime, timedelta, timezone
+
+        old = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+        hb = self._heartbeat(heartbeat=old)
+        result = self._run_diagnose(heartbeat=hb)
+        assert "stale" in result.output
+
+    def test_diagnose_heartbeat_dead(self):
+        from datetime import datetime, timedelta, timezone
+
+        old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        hb = self._heartbeat(heartbeat=old)
+        result = self._run_diagnose(heartbeat=hb)
+        assert "dead" in result.output
+
+    def test_diagnose_systemd_enabled(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(heartbeat=hb)
+        assert result.exit_code == 0
+        assert "enabled" in result.output
+
+    def test_diagnose_systemd_not_installed(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(
+            heartbeat=hb,
+            systemctl_map={
+                ("is-enabled", "biardtz"): "not-found\n",
+            },
+        )
+        assert "not installed" in result.output
+        assert "install.sh" in result.output
+
+    def test_diagnose_tailscale_not_installed(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(heartbeat=hb, tailscale_installed=False)
+        assert "not installed" in result.output
+
+    def test_diagnose_respeaker_detected(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(
+            heartbeat=hb,
+            arecord_out="card 2: ReSpeaker 4 Mic Array\n",
+        )
+        assert "detected" in result.output
+
+    def test_diagnose_no_audio_device(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(
+            heartbeat=hb,
+            arecord_out="no soundcards found\n",
+        )
+        assert "no capture devices" in result.output
+
+    def test_diagnose_non_respeaker_audio(self):
+        hb = self._heartbeat()
+        result = self._run_diagnose(
+            heartbeat=hb,
+            arecord_out="card 0: Generic USB Audio\n",
+        )
+        assert "not ReSpeaker" in result.output
+
+    def test_diagnose_sections_present(self):
+        result = self._run_diagnose(heartbeat=self._heartbeat())
+        assert "Pipeline:" in result.output
+        assert "Systemd:" in result.output
+        assert "Tailscale:" in result.output
+        assert "Audio:" in result.output
+        assert "Recommendations:" in result.output
+
+    def test_diagnose_dead_process_recommends_restart(self):
+        hb = self._heartbeat(pid=999999999)
+        result = self._run_diagnose(heartbeat=hb)
+        assert "Restart" in result.output
 
 
 class TestCliSignalHandling:

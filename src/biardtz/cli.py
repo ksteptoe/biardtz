@@ -253,7 +253,7 @@ def diagnose():
         r = subprocess.run(["arecord", "-l"], capture_output=True, text=True)
         if "ReSpeaker" in r.stdout:
             click.echo(f"  ReSpeaker:      {ok_mark} — detected")
-        elif "card" in r.stdout:
+        elif "card " in r.stdout:
             click.echo(f"  Audio device:   {warn_mark} — found but not ReSpeaker")
         else:
             click.echo(f"  Audio device:   {fail_mark} — no capture devices")
