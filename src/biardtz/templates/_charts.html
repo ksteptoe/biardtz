@@ -1,0 +1,152 @@
+<!-- Period selector -->
+<div class="flex gap-2 mb-4">
+    <button class="chart-period-btn px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-600 text-white" data-days="1" onclick="updateCharts(1, this)">Today</button>
+    <button class="chart-period-btn px-3 py-1.5 text-sm font-medium rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200" data-days="7" onclick="updateCharts(7, this)">7 days</button>
+    <button class="chart-period-btn px-3 py-1.5 text-sm font-medium rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200" data-days="30" onclick="updateCharts(30, this)">30 days</button>
+    <button class="chart-period-btn px-3 py-1.5 text-sm font-medium rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200" data-days="0" onclick="updateCharts(0, this)">All</button>
+</div>
+
+<!-- Detection timeline -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+    <h3 class="text-sm font-semibold text-stone-600 mb-2">Detection Timeline</h3>
+    <div class="relative" style="height: 220px;">
+        <canvas id="chart-timeline"></canvas>
+    </div>
+</div>
+
+<!-- Species frequency -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+    <h3 class="text-sm font-semibold text-stone-600 mb-2">Top Species</h3>
+    <div class="relative" style="height: 300px;">
+        <canvas id="chart-species"></canvas>
+    </div>
+</div>
+
+<script>
+(function() {
+    var timelineChart = null;
+    var speciesChart = null;
+    var currentDays = 1;
+
+    var chartColors = {
+        emerald: 'rgba(16, 185, 129, 1)',
+        emeraldBg: 'rgba(16, 185, 129, 0.15)',
+        amber: 'rgba(245, 158, 11, 1)',
+        amberBg: 'rgba(245, 158, 11, 0.15)',
+    };
+
+    function initTimeline(data) {
+        var ctx = document.getElementById('chart-timeline');
+        if (!ctx) return;
+        if (timelineChart) timelineChart.destroy();
+
+        timelineChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.map(function(d) { return d.hour; }),
+                datasets: [{
+                    label: 'Detections',
+                    data: data.map(function(d) { return d.count; }),
+                    borderColor: chartColors.emerald,
+                    backgroundColor: chartColors.emeraldBg,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: data.length > 48 ? 0 : 3,
+                    pointHoverRadius: 5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: currentDays <= 1 ? 'hour' : 'day', tooltipFormat: currentDays <= 1 ? 'HH:mm' : 'dd MMM' },
+                        grid: { display: false },
+                        ticks: { maxTicksLimit: 8, font: { size: 11 } },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0, font: { size: 11 } },
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 8 },
+                },
+            }
+        });
+    }
+
+    function initSpecies(data) {
+        var ctx = document.getElementById('chart-species');
+        if (!ctx) return;
+        if (speciesChart) speciesChart.destroy();
+
+        speciesChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(function(d) { return d.common_name; }),
+                datasets: [{
+                    label: 'Detections',
+                    data: data.map(function(d) { return d.count; }),
+                    backgroundColor: chartColors.emeraldBg,
+                    borderColor: chartColors.emerald,
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { precision: 0, font: { size: 11 } },
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { font: { size: 11 } },
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 8 },
+                },
+            }
+        });
+    }
+
+    function fetchCharts(days) {
+        currentDays = days;
+        var param = days > 0 ? '?days=' + days : '?days=3650';
+        fetch('/api/charts/timeline' + param)
+            .then(function(r) { return r.json(); })
+            .then(initTimeline);
+        fetch('/api/charts/species' + param + '&limit=15')
+            .then(function(r) { return r.json(); })
+            .then(initSpecies);
+    }
+
+    // Expose for period buttons
+    window.updateCharts = function(days, btn) {
+        document.querySelectorAll('.chart-period-btn').forEach(function(b) {
+            b.className = b.className
+                .replace('bg-emerald-600 text-white', '')
+                .replace('bg-stone-100 text-stone-600 hover:bg-stone-200', '')
+                .trim();
+            b.classList.add('bg-stone-100', 'text-stone-600', 'hover:bg-stone-200');
+        });
+        btn.classList.remove('bg-stone-100', 'text-stone-600', 'hover:bg-stone-200');
+        btn.classList.add('bg-emerald-600', 'text-white');
+        fetchCharts(days);
+    };
+
+    // Initial load
+    fetchCharts(1);
+})();
+</script>

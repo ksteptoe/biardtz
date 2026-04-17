@@ -6,6 +6,8 @@
     <title>biardtz</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
         .htmx-swapping { opacity: 0.5; transition: opacity 0.2s; }
     </style>
@@ -48,5 +50,6 @@
         document.body.addEventListener('htmx:sendError', function() { setErr(); });
     })();
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>
