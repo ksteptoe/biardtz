@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS detections (
 );
 CREATE INDEX IF NOT EXISTS idx_timestamp ON detections(timestamp);
 CREATE INDEX IF NOT EXISTS idx_species   ON detections(common_name);
+CREATE INDEX IF NOT EXISTS idx_ts_species_conf ON detections(timestamp, common_name, confidence);
 """
 
 # Columns added after initial schema — migrated via ALTER TABLE
