@@ -32,8 +32,31 @@ That's it! You should see the bird dashboard showing recent detections.
 - **Recent detections** — a list of birds identified, with the species name, confidence score, and time
 - **Photos** — pictures of each species so you can see what visited
 - **Daily stats** — how many birds were detected today
+- **Species leaderboard** — the most frequently detected species ranked by count
 
 The page updates automatically — just leave it open and check back whenever you like.
+
+## Filtering detections
+
+The filter bar at the top of the detection list lets you narrow down what you see:
+
+- **Search** — type part of a bird name to find specific species
+- **Confidence slider** — drag the slider to only show detections above a certain confidence level (e.g. 50% or higher)
+- **Date range** — pick a start and end date to see detections from a specific period
+- **Load More** — scroll to the bottom and tap "Load More" to see older detections
+
+All filters work together, so you can search for "robin" with confidence above 60% in the last week.
+
+## Charts (coming soon)
+
+The dashboard has chart API endpoints ready for visual summaries:
+
+- **Timeline** — detections per hour over the last week
+- **Species frequency** — most common species over the last 30 days
+- **Activity heatmap** — hour-of-day vs day-of-week activity grid
+- **Daily trend** — total detections per day over time
+
+Charts will be added to the dashboard in a future update.
 
 ## Troubleshooting
 

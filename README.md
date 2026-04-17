@@ -8,6 +8,16 @@
 
 A passive, always-on bird identification station that listens via a ReSpeaker USB 4-Mic Array, identifies species in real time using Cornell Lab's BirdNET acoustic AI model, and logs every detection to a SQLite database. Designed for Raspberry Pi 5 deployment.
 
+**Key features:**
+
+- Real-time bird ID using BirdNET with configurable confidence thresholds
+- Web dashboard with detection filtering, search, species leaderboard, and date range selection
+- Chart API endpoints (timeline, species frequency, heatmap, daily trend) for visualization
+- Mobile-friendly responsive layout with tab navigation
+- Rich terminal dashboard for headless monitoring
+- Systemd service with health monitoring and auto-restart
+- Direction-of-arrival estimation via ReSpeaker 4-mic array
+
 See the full [Build Log](docs/build_log.md) for hardware details, architecture, and setup instructions.
 
 ## Quick Start
@@ -90,6 +100,12 @@ src/biardtz/
     dashboard.py        Rich live terminal dashboard showing recent detections
     main.py             Async orchestrator — wires audio, detector, logger, dashboard
     api.py              Public Python API (Config, Detection, Detector, DetectionLogger)
+    health.py           Pipeline health monitor and heartbeat writer
+    geocode.py          Location name to lat/lon/timezone resolution
+    doa.py              Direction-of-arrival estimation for mic array
+    web/                FastAPI web dashboard (routes, DB queries, image cache)
+    templates/          Jinja2 HTML templates for the web UI
+    static/             CSS, JS, and static assets
 docs/
     build_log.md        Comprehensive build log — hardware, architecture, setup guide
     conf.py             Sphinx configuration

@@ -831,3 +831,131 @@ class TestRoutes:
         resp = asyncio.run(_run())
         assert resp.status_code == 200
         assert "Listening" in resp.text or "No detections" in resp.text
+
+    def test_partial_detections_confidence_filter(self, tmp_path):
+        """Slider sends 0-100; route converts to 0.0-1.0 for the db layer."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+            (now, "Blackbird", "Turdus merula", 0.30, 180.0, "S"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/detections?min_confidence=50")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Robin" in resp.text
+        assert "Blackbird" not in resp.text
+
+    def test_partial_detections_with_offset(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+            (now, "Blackbird", "Turdus merula", 0.70, 180.0, "S"),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/detections?offset=1&limit=10")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        # 3 rows minus offset=1 => 2 results; newest first so first skipped
+        text = resp.text
+        # Should have 2 of the 3 birds (the first in order is skipped)
+        bird_count = sum(1 for b in ["Robin", "Blackbird", "Wren"] if b in text)
+        assert bird_count == 2
+
+    def test_partial_detections_with_date_range(self, tmp_path):
+        rows = [
+            ("2025-01-15T08:00:00", "Robin", "Erithacus rubecula", 0.85, None, None),
+            ("2025-06-15T09:00:00", "Blackbird", "Turdus merula", 0.70, None, None),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get(
+                    "/partials/detections?date_from=2025-06-01T00:00:00&date_to=2025-07-01T00:00:00"
+                )
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Blackbird" in resp.text
+        assert "Robin" not in resp.text
+
+    def test_index_contains_filter_bar(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert 'id="filters"' in resp.text
+
+    def test_index_contains_detection_results_div(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert 'id="detection-results"' in resp.text
+
+    def test_partial_detections_load_more_shown(self, tmp_path):
+        """When result count == limit (default 20), 'Load more' button appears."""
+        now = _now_iso()
+        rows = [
+            (now, f"Bird{i}", f"Species {i}", 0.80, None, None)
+            for i in range(20)
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/detections")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Load more" in resp.text
+
+    def test_partial_detections_load_more_hidden(self, tmp_path):
+        """When result count < limit, 'Load more' button should not appear."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+            (now, "Blackbird", "Turdus merula", 0.70, 180.0, "S"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/detections")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Load more" not in resp.text

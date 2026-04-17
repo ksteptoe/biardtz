@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 0.2.14
+
+- Filter bar UI for the web dashboard: search by species name, confidence threshold slider, date range pickers
+- Load More pagination for browsing older detections
+- All filters combine so users can narrow results by name, confidence, and date simultaneously
+
+## Version 0.2.13
+
+- Chart API endpoints: `/api/charts/timeline`, `/api/charts/species`, `/api/charts/heatmap`, `/api/charts/trend`
+- Species list endpoint (`/api/species`) with optional search query
+- Detection API (`/api/detections`) now supports filtering by species, confidence, date range, and free-text search
+
 ## Version 0.0.6
 
 - Ruff lint fixes applied across the codebase
