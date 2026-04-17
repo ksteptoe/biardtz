@@ -14,6 +14,14 @@
     </div>
 </div>
 
+<!-- Daily trend -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+    <h3 class="text-sm font-semibold text-stone-600 mb-2">Daily Trend</h3>
+    <div class="relative" style="height: 220px;">
+        <canvas id="chart-trend"></canvas>
+    </div>
+</div>
+
 <!-- Species frequency -->
 <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="text-sm font-semibold text-stone-600 mb-2">Top Species</h3>
@@ -22,10 +30,19 @@
     </div>
 </div>
 
+<!-- Activity heatmap -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+    <h3 class="text-sm font-semibold text-stone-600 mb-2">Activity by Hour & Day</h3>
+    <div id="heatmap-container" class="overflow-x-auto">
+        <div class="text-center text-stone-400 text-sm py-4">Loading...</div>
+    </div>
+</div>
+
 <script>
 (function() {
     var timelineChart = null;
     var speciesChart = null;
+    var trendChart = null;
     var currentDays = 1;
 
     var chartColors = {
@@ -121,15 +138,127 @@
         });
     }
 
+    function initTrend(data) {
+        var ctx = document.getElementById('chart-trend');
+        if (!ctx) return;
+        if (trendChart) trendChart.destroy();
+
+        trendChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.map(function(d) { return d.day; }),
+                datasets: [{
+                    label: 'Detections',
+                    data: data.map(function(d) { return d.count; }),
+                    borderColor: chartColors.emerald,
+                    backgroundColor: chartColors.emeraldBg,
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y',
+                }, {
+                    label: 'Species',
+                    data: data.map(function(d) { return d.species; }),
+                    borderColor: chartColors.amber,
+                    backgroundColor: 'transparent',
+                    borderDash: [5, 3],
+                    tension: 0.3,
+                    pointRadius: 3,
+                    yAxisID: 'y1',
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: 'day', tooltipFormat: 'dd MMM' },
+                        grid: { display: false },
+                        ticks: { maxTicksLimit: 8, font: { size: 11 } },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        position: 'left',
+                        title: { display: true, text: 'Detections', font: { size: 11 } },
+                        ticks: { precision: 0, font: { size: 11 } },
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                    },
+                    y1: {
+                        beginAtZero: true,
+                        position: 'right',
+                        title: { display: true, text: 'Species', font: { size: 11 } },
+                        ticks: { precision: 0, font: { size: 11 } },
+                        grid: { display: false },
+                    }
+                },
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                    tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 8 },
+                },
+            }
+        });
+    }
+
+    function initHeatmap(data) {
+        var container = document.getElementById('heatmap-container');
+        if (!container) return;
+
+        var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var grid = {};
+        var maxCount = 0;
+        data.forEach(function(d) {
+            var key = d.dow + '-' + d.hour;
+            grid[key] = d.count;
+            if (d.count > maxCount) maxCount = d.count;
+        });
+
+        var html = '<div style="display:grid; grid-template-columns: 40px repeat(24, 1fr); gap:2px; min-width:400px;">';
+        // Header row
+        html += '<div></div>';
+        for (var h = 0; h < 24; h++) {
+            html += '<div class="text-center text-xs text-stone-400" style="font-size:9px;">' + (h < 10 ? '0' : '') + h + '</div>';
+        }
+        // Data rows
+        for (var d = 0; d < 7; d++) {
+            html += '<div class="text-xs text-stone-500 flex items-center">' + days[d] + '</div>';
+            for (var h = 0; h < 24; h++) {
+                var count = grid[d + '-' + h] || 0;
+                var intensity = maxCount > 0 ? count / maxCount : 0;
+                var bg;
+                if (count === 0) {
+                    bg = '#f5f5f4';
+                } else if (intensity < 0.25) {
+                    bg = '#d1fae5';
+                } else if (intensity < 0.5) {
+                    bg = '#6ee7b7';
+                } else if (intensity < 0.75) {
+                    bg = '#34d399';
+                } else {
+                    bg = '#059669';
+                }
+                html += '<div style="background:' + bg + '; aspect-ratio:1; border-radius:2px;" title="' + days[d] + ' ' + h + ':00 — ' + count + ' detections"></div>';
+            }
+        }
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
     function fetchCharts(days) {
         currentDays = days;
         var param = days > 0 ? '?days=' + days : '?days=3650';
         fetch('/api/charts/timeline' + param)
             .then(function(r) { return r.json(); })
             .then(initTimeline);
+        fetch('/api/charts/trend' + param)
+            .then(function(r) { return r.json(); })
+            .then(initTrend);
         fetch('/api/charts/species' + param + '&limit=15')
             .then(function(r) { return r.json(); })
             .then(initSpecies);
+        fetch('/api/charts/heatmap' + param)
+            .then(function(r) { return r.json(); })
+            .then(initHeatmap);
     }
 
     // Expose for period buttons
