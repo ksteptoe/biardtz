@@ -42,6 +42,19 @@
 </div>
 {% endfor %}
 
+{% if detections | length >= limit %}
+<div class="text-center mt-3">
+    <button class="px-4 py-2 text-sm text-emerald-700 bg-emerald-50 hover:bg-emerald-100
+                   rounded-lg transition"
+            hx-get="/partials/detections?offset={{ offset + limit }}&limit={{ limit }}"
+            hx-target="#detection-results"
+            hx-include="#filters"
+            hx-swap="innerHTML transition:true">
+        Load more
+    </button>
+</div>
+{% endif %}
+
 {% if not detections %}
 <div class="text-center text-stone-400 py-16">
     <svg class="mx-auto w-16 h-16 mb-4 text-stone-300" fill="currentColor" viewBox="0 0 24 24">

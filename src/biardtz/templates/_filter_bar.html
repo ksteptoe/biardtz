@@ -1,0 +1,61 @@
+<form id="filters" class="bg-white rounded-xl shadow-sm p-3 mb-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <!-- Search -->
+        <div class="sm:col-span-2 md:col-span-1">
+            <input type="search" name="search" placeholder="Search birds..."
+                   value="{{ filters.search or '' }}"
+                   class="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg
+                          focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                   hx-get="/partials/detections"
+                   hx-target="#detection-results"
+                   hx-include="#filters"
+                   hx-trigger="keyup changed delay:300ms"
+                   hx-swap="innerHTML transition:true">
+        </div>
+
+        <!-- Confidence slider -->
+        <div>
+            <div class="flex items-center gap-2">
+                <input type="range" name="min_confidence" min="0" max="100" step="5"
+                       value="{{ ((filters.min_confidence or 0) * 100) | int }}"
+                       class="flex-1 h-2 accent-emerald-600"
+                       hx-get="/partials/detections"
+                       hx-target="#detection-results"
+                       hx-include="#filters"
+                       hx-trigger="change"
+                       hx-swap="innerHTML transition:true"
+                       oninput="this.nextElementSibling.textContent = this.value + '%'">
+                <span class="text-xs text-stone-500 w-8 text-right">{{ ((filters.min_confidence or 0) * 100) | int }}%</span>
+            </div>
+            <div class="text-xs text-stone-400 mt-0.5">Min confidence</div>
+        </div>
+
+        <!-- Date from -->
+        <div>
+            <input type="date" name="date_from"
+                   value="{{ filters.date_from or '' }}"
+                   class="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg
+                          focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                   hx-get="/partials/detections"
+                   hx-target="#detection-results"
+                   hx-include="#filters"
+                   hx-trigger="change"
+                   hx-swap="innerHTML transition:true">
+            <div class="text-xs text-stone-400 mt-0.5">From</div>
+        </div>
+
+        <!-- Date to -->
+        <div>
+            <input type="date" name="date_to"
+                   value="{{ filters.date_to or '' }}"
+                   class="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg
+                          focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                   hx-get="/partials/detections"
+                   hx-target="#detection-results"
+                   hx-include="#filters"
+                   hx-trigger="change"
+                   hx-swap="innerHTML transition:true">
+            <div class="text-xs text-stone-400 mt-0.5">To</div>
+        </div>
+    </div>
+</form>

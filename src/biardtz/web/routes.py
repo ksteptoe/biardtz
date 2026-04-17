@@ -22,10 +22,18 @@ def register(app: FastAPI) -> None:
             stats = db.species_stats(conn, config.tz)
         finally:
             conn.close()
+        filters = {"search": None, "min_confidence": None, "date_from": None, "date_to": None}
         return request.app.state.templates.TemplateResponse(
             request,
             "index.html",
-            {"detections": detections, "stats": stats, "config": config},
+            {
+                "detections": detections,
+                "stats": stats,
+                "config": config,
+                "filters": filters,
+                "limit": 20,
+                "offset": 0,
+            },
         )
 
     @app.get("/partials/detections", response_class=HTMLResponse)
@@ -39,6 +47,8 @@ def register(app: FastAPI) -> None:
         date_to: str = Query(None),
         search: str = Query(None),
     ):
+        # Slider sends 0-100, db expects 0.0-1.0
+        db_confidence = min_confidence / 100.0 if min_confidence else None
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
@@ -47,7 +57,7 @@ def register(app: FastAPI) -> None:
                 limit=limit,
                 offset=offset,
                 species=species,
-                min_confidence=min_confidence,
+                min_confidence=db_confidence,
                 date_from=date_from,
                 date_to=date_to,
                 search=search,
@@ -57,7 +67,7 @@ def register(app: FastAPI) -> None:
         return request.app.state.templates.TemplateResponse(
             request,
             "_detections.html",
-            {"detections": detections},
+            {"detections": detections, "limit": limit, "offset": offset},
         )
 
     @app.get("/partials/stats", response_class=HTMLResponse)
