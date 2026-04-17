@@ -1,5 +1,35 @@
 # Changelog
 
+## Version 0.2.19
+
+- Server-side 60-second TTL cache for all chart API responses
+- Cache-Control headers on chart endpoints for browser caching
+- Loading skeleton animations while chart data is fetched
+
+## Version 0.2.18
+
+- Daily trend chart with dual-axis display: detection count and unique species count
+- Activity heatmap: hour-of-day vs day-of-week CSS grid with green intensity scale
+
+## Version 0.2.17
+
+- Chart.js 4.x and date-fns adapter loaded via CDN
+- Detection timeline line chart on the Charts tab
+- Species frequency horizontal bar chart
+- Period selector for charts: Today, 7d, 30d, All
+
+## Version 0.2.16
+
+- Seven new filter and pagination route tests
+- Documentation updates covering v0.2.13 and v0.2.14
+
+## Version 0.2.15
+
+- Mobile-first responsive layout with tab navigation (Live, Charts, Species)
+- Two-column layout on desktop; single-column with tabs on mobile
+- Responsive stat cards
+- Compass widget hidden on narrow screens
+
 ## Version 0.2.14
 
 - Filter bar UI for the web dashboard: search by species name, confidence threshold slider, date range pickers

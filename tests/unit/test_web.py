@@ -515,6 +515,9 @@ class TestCreateApp:
         assert "/" in route_paths
         assert "/partials/detections" in route_paths
         assert "/partials/stats" in route_paths
+        assert "/partials/tab/live" in route_paths
+        assert "/partials/tab/charts" in route_paths
+        assert "/partials/tab/species" in route_paths
         assert "/api/detections" in route_paths
         assert "/api/image/{sci_name:path}" in route_paths
         assert "/api/charts/timeline" in route_paths
@@ -959,3 +962,131 @@ class TestRoutes:
         resp = asyncio.run(_run())
         assert resp.status_code == 200
         assert "Load more" not in resp.text
+
+    # -- Milestone 3: tab partials -------------------------------------------
+
+    def test_tab_live_returns_html(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/tab/live")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Recent Detections" in resp.text
+
+    def test_tab_charts_returns_html(self, tmp_path):
+        app = _make_app(tmp_path)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/tab/charts")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Charts" in resp.text
+
+    def test_tab_species_returns_html(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/tab/species")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Species Leaderboard" in resp.text
+
+    def test_index_contains_tab_navigation(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "tab-btn" in resp.text
+
+    # -- Milestone 6: cache-control headers ----------------------------------
+
+    def test_chart_timeline_cache_control(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/timeline?days=1")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "max-age=60" in resp.headers.get("cache-control", "")
+
+    def test_chart_species_cache_control(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/species?days=1")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "max-age=60" in resp.headers.get("cache-control", "")
+
+    def test_chart_heatmap_cache_control(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/heatmap?days=1")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "max-age=60" in resp.headers.get("cache-control", "")
+
+    def test_chart_trend_cache_control(self, tmp_path):
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/trend?days=1")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "max-age=60" in resp.headers.get("cache-control", "")

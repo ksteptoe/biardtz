@@ -47,16 +47,26 @@ The filter bar at the top of the detection list lets you narrow down what you se
 
 All filters work together, so you can search for "robin" with confidence above 60% in the last week.
 
-## Charts (coming soon)
+## Mobile and desktop layout
 
-The dashboard has chart API endpoints ready for visual summaries:
+On a phone, the dashboard uses tab navigation at the top of the page:
 
-- **Timeline** — detections per hour over the last week
-- **Species frequency** — most common species over the last 30 days
-- **Activity heatmap** — hour-of-day vs day-of-week activity grid
-- **Daily trend** — total detections per day over time
+- **Live** — the detection feed, stats, and filter bar
+- **Charts** — all visual summaries (see below)
+- **Species** — the species leaderboard
 
-Charts will be added to the dashboard in a future update.
+On a tablet or desktop you see a two-column layout with everything visible at once. The compass widget is hidden on narrow screens to save space.
+
+## Charts
+
+The Charts tab shows four visualisations powered by Chart.js. Use the **period selector** (Today / 7d / 30d / All) at the top of the tab to change the time range for all charts.
+
+- **Detection timeline** — a line chart showing detections per hour over the selected period
+- **Daily trend** — a dual-axis chart plotting total detections and unique species count per day
+- **Species frequency** — a horizontal bar chart of the most commonly detected species
+- **Activity heatmap** — an hour-of-day vs day-of-week grid shaded in green to show when birds are most active
+
+Chart data is cached on the server for 60 seconds, so the page loads quickly even on a slow connection. A loading skeleton appears while the data is being fetched.
 
 ## Troubleshooting
 
