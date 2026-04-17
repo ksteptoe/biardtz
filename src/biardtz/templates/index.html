@@ -2,23 +2,59 @@
 {% block content %}
 
 <!-- Summary cards -->
-<div class="grid grid-cols-3 gap-4 mb-6">
-    <div class="bg-white rounded-xl shadow p-4 text-center">
-        <div class="text-3xl font-bold text-emerald-600">{{ stats.today_count }}</div>
-        <div class="text-sm text-stone-500">Today</div>
+<div class="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
+    <div class="bg-white rounded-xl shadow p-3 sm:p-4 text-center">
+        <div class="text-2xl sm:text-3xl font-bold text-emerald-600">{{ stats.today_count }}</div>
+        <div class="text-xs sm:text-sm text-stone-500">Today</div>
     </div>
-    <div class="bg-white rounded-xl shadow p-4 text-center">
-        <div class="text-3xl font-bold text-amber-600">{{ stats.today_species }}</div>
-        <div class="text-sm text-stone-500">Species Today</div>
+    <div class="bg-white rounded-xl shadow p-3 sm:p-4 text-center">
+        <div class="text-2xl sm:text-3xl font-bold text-amber-600">{{ stats.today_species }}</div>
+        <div class="text-xs sm:text-sm text-stone-500">Species Today</div>
     </div>
-    <div class="bg-white rounded-xl shadow p-4 text-center">
-        <div class="text-3xl font-bold text-sky-600">{{ stats.all_time_species }}</div>
-        <div class="text-sm text-stone-500">All Time</div>
+    <div class="bg-white rounded-xl shadow p-3 sm:p-4 text-center">
+        <div class="text-2xl sm:text-3xl font-bold text-sky-600">{{ stats.all_time_species }}</div>
+        <div class="text-xs sm:text-sm text-stone-500">All Time</div>
     </div>
 </div>
 
-<!-- Two-column layout -->
-<div class="grid md:grid-cols-3 gap-6">
+<!-- Tab navigation (mobile) / hidden on desktop -->
+<div class="flex gap-1 mb-4 md:hidden" role="tablist">
+    <button class="tab-btn flex-1 px-3 py-2 text-sm font-medium rounded-lg transition
+                   bg-emerald-600 text-white"
+            data-tab="live"
+            hx-get="/partials/tab/live"
+            hx-target="#tab-content"
+            hx-swap="innerHTML transition:true"
+            onclick="switchTab(this)">
+        Live
+    </button>
+    <button class="tab-btn flex-1 px-3 py-2 text-sm font-medium rounded-lg transition
+                   bg-stone-100 text-stone-600 hover:bg-stone-200"
+            data-tab="charts"
+            hx-get="/partials/tab/charts"
+            hx-target="#tab-content"
+            hx-swap="innerHTML transition:true"
+            onclick="switchTab(this)">
+        Charts
+    </button>
+    <button class="tab-btn flex-1 px-3 py-2 text-sm font-medium rounded-lg transition
+                   bg-stone-100 text-stone-600 hover:bg-stone-200"
+            data-tab="species"
+            hx-get="/partials/tab/species"
+            hx-target="#tab-content"
+            hx-swap="innerHTML transition:true"
+            onclick="switchTab(this)">
+        Species
+    </button>
+</div>
+
+<!-- Mobile: tabbed content area -->
+<div id="tab-content" class="md:hidden">
+    {% include "_tab_live.html" %}
+</div>
+
+<!-- Desktop: two-column layout (hidden on mobile) -->
+<div class="hidden md:grid md:grid-cols-3 gap-6">
     <!-- Recent detections (left 2/3) -->
     <div class="md:col-span-2">
         <h2 class="text-lg font-semibold mb-3">Recent Detections</h2>
@@ -43,5 +79,19 @@
         </div>
     </div>
 </div>
+
+<script>
+function switchTab(btn) {
+    document.querySelectorAll('.tab-btn').forEach(function(b) {
+        b.className = b.className
+            .replace('bg-emerald-600 text-white', '')
+            .replace('bg-stone-100 text-stone-600 hover:bg-stone-200', '')
+            .trim();
+        b.classList.add('bg-stone-100', 'text-stone-600', 'hover:bg-stone-200');
+    });
+    btn.classList.remove('bg-stone-100', 'text-stone-600', 'hover:bg-stone-200');
+    btn.classList.add('bg-emerald-600', 'text-white');
+}
+</script>
 
 {% endblock %}

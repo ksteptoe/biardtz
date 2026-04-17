@@ -1,0 +1,7 @@
+<h2 class="text-lg font-semibold mb-3">Species Leaderboard</h2>
+<div id="stats-panel-mobile"
+     hx-get="/partials/stats"
+     hx-trigger="every 30s"
+     hx-swap="innerHTML">
+    {% include "_stats.html" %}
+</div>

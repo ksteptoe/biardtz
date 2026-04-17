@@ -1,0 +1,9 @@
+<h2 class="text-lg font-semibold mb-3">Recent Detections</h2>
+{% include "_filter_bar.html" %}
+<div id="detection-results-mobile"
+     hx-get="/partials/detections"
+     hx-include="#filters"
+     hx-trigger="every 5s"
+     hx-swap="innerHTML transition:true">
+    {% include "_detections.html" %}
+</div>

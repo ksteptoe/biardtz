@@ -84,6 +84,43 @@ def register(app: FastAPI) -> None:
             {"stats": stats},
         )
 
+    @app.get("/partials/tab/live", response_class=HTMLResponse)
+    async def partial_tab_live(request: Request):
+        config = request.app.state.config
+        conn = db.get_connection(config.db_path)
+        try:
+            detections = db.recent_detections(conn, limit=20)
+        finally:
+            conn.close()
+        filters = {"search": None, "min_confidence": None, "date_from": None, "date_to": None}
+        return request.app.state.templates.TemplateResponse(
+            request,
+            "_tab_live.html",
+            {"detections": detections, "filters": filters, "limit": 20, "offset": 0},
+        )
+
+    @app.get("/partials/tab/charts", response_class=HTMLResponse)
+    async def partial_tab_charts(request: Request):
+        return request.app.state.templates.TemplateResponse(
+            request,
+            "_tab_charts.html",
+            {},
+        )
+
+    @app.get("/partials/tab/species", response_class=HTMLResponse)
+    async def partial_tab_species(request: Request):
+        config = request.app.state.config
+        conn = db.get_connection(config.db_path)
+        try:
+            stats = db.species_stats(conn, config.tz)
+        finally:
+            conn.close()
+        return request.app.state.templates.TemplateResponse(
+            request,
+            "_tab_species.html",
+            {"stats": stats},
+        )
+
     @app.get("/api/detections")
     async def api_detections(
         request: Request,
