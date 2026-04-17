@@ -10,6 +10,7 @@
 <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="text-sm font-semibold text-stone-600 mb-2">Detection Timeline</h3>
     <div class="relative" style="height: 220px;">
+        <div class="chart-skeleton absolute inset-0 bg-stone-100 rounded animate-pulse"></div>
         <canvas id="chart-timeline"></canvas>
     </div>
 </div>
@@ -18,6 +19,7 @@
 <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="text-sm font-semibold text-stone-600 mb-2">Daily Trend</h3>
     <div class="relative" style="height: 220px;">
+        <div class="chart-skeleton absolute inset-0 bg-stone-100 rounded animate-pulse"></div>
         <canvas id="chart-trend"></canvas>
     </div>
 </div>
@@ -26,6 +28,7 @@
 <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="text-sm font-semibold text-stone-600 mb-2">Top Species</h3>
     <div class="relative" style="height: 300px;">
+        <div class="chart-skeleton absolute inset-0 bg-stone-100 rounded animate-pulse"></div>
         <canvas id="chart-species"></canvas>
     </div>
 </div>
@@ -34,7 +37,7 @@
 <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="text-sm font-semibold text-stone-600 mb-2">Activity by Hour & Day</h3>
     <div id="heatmap-container" class="overflow-x-auto">
-        <div class="text-center text-stone-400 text-sm py-4">Loading...</div>
+        <div class="chart-skeleton h-40 bg-stone-100 rounded animate-pulse"></div>
     </div>
 </div>
 
@@ -44,6 +47,10 @@
     var speciesChart = null;
     var trendChart = null;
     var currentDays = 1;
+
+    function hideSkeletons() {
+        document.querySelectorAll('.chart-skeleton').forEach(function(el) { el.remove(); });
+    }
 
     var chartColors = {
         emerald: 'rgba(16, 185, 129, 1)',
@@ -247,18 +254,20 @@
     function fetchCharts(days) {
         currentDays = days;
         var param = days > 0 ? '?days=' + days : '?days=3650';
+        var done = 0;
+        function onDone() { if (++done >= 4) hideSkeletons(); }
         fetch('/api/charts/timeline' + param)
             .then(function(r) { return r.json(); })
-            .then(initTimeline);
+            .then(function(d) { initTimeline(d); onDone(); });
         fetch('/api/charts/trend' + param)
             .then(function(r) { return r.json(); })
-            .then(initTrend);
+            .then(function(d) { initTrend(d); onDone(); });
         fetch('/api/charts/species' + param + '&limit=15')
             .then(function(r) { return r.json(); })
-            .then(initSpecies);
+            .then(function(d) { initSpecies(d); onDone(); });
         fetch('/api/charts/heatmap' + param)
             .then(function(r) { return r.json(); })
-            .then(initHeatmap);
+            .then(function(d) { initHeatmap(d); onDone(); });
     }
 
     // Expose for period buttons
