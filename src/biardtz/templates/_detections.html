@@ -25,6 +25,19 @@
         </div>
     </div>
 
+    <!-- Audio play button -->
+    {% if det.audio_file %}
+    <button onclick="var a=this.querySelector('audio');if(a.paused){document.querySelectorAll('audio').forEach(x=>x.pause());a.play()}else{a.pause()}"
+            class="flex-shrink-0 w-9 h-9 rounded-full bg-emerald-50 hover:bg-emerald-100
+                   text-emerald-600 flex items-center justify-center transition"
+            title="Play audio clip">
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z"/>
+        </svg>
+        <audio src="/api/audio/{{ det.audio_file }}" preload="none"></audio>
+    </button>
+    {% endif %}
+
     <!-- Direction compass (hidden on small screens) -->
     {% if det.bearing is not none %}
     <div class="hidden sm:block flex-shrink-0 text-center">

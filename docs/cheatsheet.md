@@ -66,6 +66,8 @@ journalctl -u biardtz -f              # Follow live logs
 | Home network (IP) | `http://192.168.1.124:8080` |
 | Anywhere (Tailscale) | `http://100.74.44.10:8080` |
 
+Detection rows include a play button for species that have a saved audio clip. Clicking play stops any other clip that is currently playing.
+
 ## Monitoring & debugging
 
 ```bash
@@ -83,6 +85,7 @@ make heartbeat         # Show raw heartbeat JSON
 |------|------|
 | Rotating log | `/mnt/ssd/biardtz/logs/biardtz.log` (5 MB, 5 backups) |
 | Heartbeat | `/mnt/ssd/biardtz/heartbeat.json` (updated every 10s) |
+| Audio clips | `/mnt/ssd/audio_clips/` (best WAV per species, ~288 KB each) |
 | Journal | `journalctl -u biardtz` |
 
 ### What `diagnose` checks

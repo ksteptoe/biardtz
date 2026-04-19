@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import signal
+import wave
+from pathlib import Path
+
+import numpy as np
 
 from .audio_capture import audio_producer
 from .config import Config
@@ -13,6 +18,26 @@ from .health import HealthMonitor
 from .logger import DetectionLogger
 
 _logger = logging.getLogger(__name__)
+
+
+def _species_slug(common_name: str) -> str:
+    """Convert a species name to a filesystem-safe slug."""
+    return re.sub(r"[^a-z0-9]+", "_", common_name.lower()).strip("_")
+
+
+def _save_audio_clip(
+    chunk: np.ndarray, audio_dir: Path, filename: str,
+) -> str:
+    """Save a mono float32 16 kHz chunk as 16-bit PCM WAV. Returns filename."""
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    filepath = audio_dir / filename
+    pcm = (chunk * 32767).clip(-32768, 32767).astype(np.int16)
+    with wave.open(str(filepath), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16_000)
+        wf.writeframes(pcm.tobytes())
+    return filename
 
 
 async def _detection_worker(
@@ -60,6 +85,21 @@ async def _detection_worker(
                 f" from {det.direction} ({det.bearing:.0f}\u00b0)" if det.direction else "",
             )
             await det_logger.log(det)
+
+            # Save audio clip if this is the best sample for the species
+            if config is not None:
+                best = await det_logger.get_audio_confidence(det.common_name)
+                if best is None or det.confidence > best:
+                    filename = f"{_species_slug(det.common_name)}.wav"
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, _save_audio_clip, chunk,
+                        config.audio_clip_dir, filename,
+                    )
+                    await det_logger.save_audio_clip(
+                        det.common_name, det.confidence, filename,
+                    )
+
             if health:
                 health.mark_detection()
             if dashboard_queue is not None:

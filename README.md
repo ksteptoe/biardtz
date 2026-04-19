@@ -11,6 +11,7 @@ A passive, always-on bird identification station that listens via a ReSpeaker US
 **Key features:**
 
 - Real-time bird ID using BirdNET with configurable confidence thresholds
+- Audio clip playback --- saves the best sample per species and plays it from the dashboard
 - Web dashboard with detection filtering, search, species leaderboard, and date range selection
 - Chart.js visualisations: detection timeline, daily trend, species frequency, and activity heatmap
 - Mobile-first responsive layout with tab navigation (Live/Charts/Species) and two-column desktop view

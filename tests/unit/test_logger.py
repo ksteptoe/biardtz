@@ -152,6 +152,110 @@ class TestSessionSummary:
             await logger.close()
 
 
+class TestAudioClips:
+    """Tests for audio_clips table and related methods."""
+
+    def test_audio_clips_table_created(self, config, logger):
+        asyncio.run(self._run_table_exists(logger))
+
+    @staticmethod
+    async def _run_table_exists(logger):
+        await logger.init_db()
+        try:
+            cursor = await logger._db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='audio_clips'"
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == "audio_clips"
+        finally:
+            await logger.close()
+
+    def test_save_audio_clip_insert(self, config, logger):
+        asyncio.run(self._run_insert(logger))
+
+    @staticmethod
+    async def _run_insert(logger):
+        await logger.init_db()
+        try:
+            await logger.save_audio_clip("Robin", 0.85, "robin_001.wav")
+            cursor = await logger._db.execute(
+                "SELECT common_name, confidence, filename FROM audio_clips WHERE common_name = ?",
+                ("Robin",),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == "Robin"
+            assert abs(row[1] - 0.85) < 1e-6
+            assert row[2] == "robin_001.wav"
+        finally:
+            await logger.close()
+
+    def test_save_audio_clip_higher_confidence_replaces(self, config, logger):
+        asyncio.run(self._run_higher_replaces(logger))
+
+    @staticmethod
+    async def _run_higher_replaces(logger):
+        await logger.init_db()
+        try:
+            await logger.save_audio_clip("Robin", 0.5, "robin_low.wav")
+            await logger.save_audio_clip("Robin", 0.8, "robin_high.wav")
+            cursor = await logger._db.execute(
+                "SELECT confidence, filename FROM audio_clips WHERE common_name = ?",
+                ("Robin",),
+            )
+            row = await cursor.fetchone()
+            assert abs(row[0] - 0.8) < 1e-6
+            assert row[1] == "robin_high.wav"
+        finally:
+            await logger.close()
+
+    def test_save_audio_clip_lower_confidence_keeps_original(self, config, logger):
+        asyncio.run(self._run_lower_keeps(logger))
+
+    @staticmethod
+    async def _run_lower_keeps(logger):
+        await logger.init_db()
+        try:
+            await logger.save_audio_clip("Robin", 0.8, "robin_high.wav")
+            await logger.save_audio_clip("Robin", 0.5, "robin_low.wav")
+            cursor = await logger._db.execute(
+                "SELECT confidence, filename FROM audio_clips WHERE common_name = ?",
+                ("Robin",),
+            )
+            row = await cursor.fetchone()
+            assert abs(row[0] - 0.8) < 1e-6
+            assert row[1] == "robin_high.wav"
+        finally:
+            await logger.close()
+
+    def test_get_audio_confidence_none(self, config, logger):
+        asyncio.run(self._run_conf_none(logger))
+
+    @staticmethod
+    async def _run_conf_none(logger):
+        await logger.init_db()
+        try:
+            result = await logger.get_audio_confidence("Unknown Bird")
+            assert result is None
+        finally:
+            await logger.close()
+
+    def test_get_audio_confidence_returns_value(self, config, logger):
+        asyncio.run(self._run_conf_value(logger))
+
+    @staticmethod
+    async def _run_conf_value(logger):
+        await logger.init_db()
+        try:
+            await logger.save_audio_clip("Robin", 0.75, "robin.wav")
+            result = await logger.get_audio_confidence("Robin")
+            assert result is not None
+            assert abs(result - 0.75) < 1e-6
+        finally:
+            await logger.close()
+
+
 class TestClose:
     def test_close_works_cleanly(self, config, logger):
         asyncio.run(self._run(logger))

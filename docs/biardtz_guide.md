@@ -15,6 +15,7 @@ biardtz is a bird identification system that runs on a Raspberry Pi. It listens 
 - **Real-time identification** --- 3-second audio chunks analysed continuously
 - **Species filtering** --- uses your location and time of year to improve accuracy
 - **Direction of arrival** --- estimates which compass direction the bird is calling from
+- **Audio clip playback** --- saves the best audio sample per species and plays it from the web dashboard
 - **Web dashboard** --- mobile-friendly, auto-refreshing, with bird photos
 - **Remote access** --- view detections from anywhere via Tailscale VPN
 - **Auto-start** --- runs as a systemd service, survives reboots and SSH disconnects
@@ -176,11 +177,16 @@ Works from anywhere --- home, work, or mobile data.
 ### What you see
 
 - **Summary cards** --- today's detections, today's species, all-time species count
-- **Recent detections** --- bird name, confidence bar, compass direction, and photo
+- **Recent detections** --- bird name, confidence bar, compass direction, photo, and play button
+- **Audio clip playback** --- click the play button on any detection row to hear the best recorded sample for that species; clicking play on another row stops the current clip
 - **Species leaderboard** --- ranked by detection count
 - **Auto-refresh** --- detections update every 5 seconds, stats every 30 seconds
 
 Bird photos are fetched from Wikipedia/Wikidata and cached on the SSD.
+
+### Audio clips
+
+biardtz saves the best audio sample per species as a WAV file (16-bit PCM, mono, 16 kHz, ~288 KB per 3-second clip). When a detection has higher confidence than the existing clip for that species, the clip is automatically replaced. Clips are stored in `/mnt/ssd/audio_clips/` (configurable via `audio_clip_dir` in the Config dataclass) and tracked in an `audio_clips` SQLite table. Storage is bounded --- even with hundreds of species, total usage stays under ~100 MB.
 
 ### Standalone mode
 
@@ -306,6 +312,9 @@ curl http://localhost:8080/api/detections?limit=10
 
 # Bird image by scientific name
 curl http://localhost:8080/api/image/Turdus%20merula -o blackbird.jpg
+
+# Audio clip for a species
+curl http://localhost:8080/api/audio/Turdus_merula.wav -o blackbird.wav
 ```
 
 ### Common debugging workflows

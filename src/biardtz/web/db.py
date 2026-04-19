@@ -202,6 +202,15 @@ def daily_trend(
     return [dict(r) for r in rows]
 
 
+def species_audio_map(conn: sqlite3.Connection) -> dict[str, str]:
+    """Return {common_name: filename} for all species with audio clips."""
+    try:
+        rows = conn.execute("SELECT common_name, filename FROM audio_clips").fetchall()
+        return {row["common_name"]: row["filename"] for row in rows}
+    except Exception:
+        return {}  # table doesn't exist yet
+
+
 def species_list(conn: sqlite3.Connection, q: str | None = None) -> list[dict]:
     """Distinct species, optionally filtered by prefix/substring."""
     if q:

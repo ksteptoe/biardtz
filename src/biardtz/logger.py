@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS detections (
 CREATE INDEX IF NOT EXISTS idx_timestamp ON detections(timestamp);
 CREATE INDEX IF NOT EXISTS idx_species   ON detections(common_name);
 CREATE INDEX IF NOT EXISTS idx_ts_species_conf ON detections(timestamp, common_name, confidence);
+CREATE TABLE IF NOT EXISTS audio_clips (
+    common_name TEXT PRIMARY KEY,
+    confidence  REAL NOT NULL,
+    filename    TEXT NOT NULL
+);
 """
 
 # Columns added after initial schema — migrated via ALTER TABLE
@@ -87,6 +92,31 @@ class DetectionLogger:
         )
         await self._db.commit()
         self._count += 1
+
+    async def get_audio_confidence(self, common_name: str) -> float | None:
+        """Return the stored best confidence for a species' audio clip, or None."""
+        assert self._db is not None
+        cursor = await self._db.execute(
+            "SELECT confidence FROM audio_clips WHERE common_name = ?",
+            (common_name,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+    async def save_audio_clip(
+        self, common_name: str, confidence: float, filename: str,
+    ) -> None:
+        """Insert or update the best audio clip for a species (higher confidence wins)."""
+        assert self._db is not None
+        await self._db.execute(
+            "INSERT INTO audio_clips (common_name, confidence, filename) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(common_name) DO UPDATE SET "
+            "confidence = excluded.confidence, filename = excluded.filename "
+            "WHERE excluded.confidence > audio_clips.confidence",
+            (common_name, confidence, filename),
+        )
+        await self._db.commit()
 
     async def session_summary(self) -> str:
         assert self._db is not None

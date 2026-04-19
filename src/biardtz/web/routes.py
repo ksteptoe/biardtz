@@ -31,12 +31,19 @@ def _set_cache(key: str, value: list) -> list:
 def register(app: FastAPI) -> None:
     """Register all routes on the FastAPI app."""
 
+    def _attach_audio(detections: list[dict], conn) -> list[dict]:
+        audio_map = db.species_audio_map(conn)
+        for det in detections:
+            det["audio_file"] = audio_map.get(det["common_name"])
+        return detections
+
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
             detections = db.recent_detections(conn, limit=20)
+            _attach_audio(detections, conn)
             stats = db.species_stats(conn, config.tz)
         finally:
             conn.close()
@@ -80,6 +87,7 @@ def register(app: FastAPI) -> None:
                 date_to=date_to,
                 search=search,
             )
+            _attach_audio(detections, conn)
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
@@ -108,6 +116,7 @@ def register(app: FastAPI) -> None:
         conn = db.get_connection(config.db_path)
         try:
             detections = db.recent_detections(conn, limit=20)
+            _attach_audio(detections, conn)
         finally:
             conn.close()
         filters = {"search": None, "min_confidence": None, "date_from": None, "date_to": None}
@@ -245,6 +254,16 @@ def register(app: FastAPI) -> None:
             return db.species_list(conn, q=q)
         finally:
             conn.close()
+
+    @app.get("/api/audio/{filename}")
+    async def audio_clip(request: Request, filename: str):
+        if "/" in filename or "\\" in filename or ".." in filename:
+            return HTMLResponse("", status_code=400)
+        config = request.app.state.config
+        path = config.audio_clip_dir / filename
+        if path.exists():
+            return FileResponse(path, media_type="audio/wav")
+        return HTMLResponse("", status_code=404)
 
     @app.get("/api/image/{sci_name:path}")
     async def bird_image(request: Request, sci_name: str):

@@ -27,10 +27,12 @@ class Config:
     enable_web: bool = True
     web_port: int = 8080
     bird_image_cache: Path = Path("/mnt/ssd/bird_images")
+    audio_clip_dir: Path = Path("/mnt/ssd/audio_clips")
 
     def __post_init__(self):
         self.db_path = Path(self.db_path)
         self.bird_image_cache = Path(self.bird_image_cache)
+        self.audio_clip_dir = Path(self.audio_clip_dir)
         if self.birdnet_path is None:
             # Sibling directory to the repository root
             self.birdnet_path = Path(__file__).resolve().parents[3] / "BirdNET-Analyzer"

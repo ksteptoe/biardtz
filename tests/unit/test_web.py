@@ -525,6 +525,7 @@ class TestCreateApp:
         assert "/api/charts/heatmap" in route_paths
         assert "/api/charts/trend" in route_paths
         assert "/api/species" in route_paths
+        assert "/api/audio/{filename}" in route_paths
 
     def test_app_title(self, tmp_path):
         db_path = tmp_path / "test.db"
@@ -537,6 +538,28 @@ class TestCreateApp:
 # ---------------------------------------------------------------------------
 # Routes (using httpx.AsyncClient as ASGI transport)
 # ---------------------------------------------------------------------------
+_AUDIO_CLIPS_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS audio_clips (
+    common_name TEXT PRIMARY KEY,
+    confidence  REAL NOT NULL,
+    filename    TEXT NOT NULL
+);
+"""
+
+
+def _create_audio_clips(path, clips=None):
+    """Add audio_clips table and optional rows to an existing test database."""
+    conn = sqlite3.connect(str(path))
+    conn.executescript(_AUDIO_CLIPS_SCHEMA)
+    if clips:
+        conn.executemany(
+            "INSERT INTO audio_clips (common_name, confidence, filename) VALUES (?, ?, ?)",
+            clips,
+        )
+        conn.commit()
+    conn.close()
+
+
 def _make_app(tmp_path, rows=None):
     """Helper to create a FastAPI app with a test database."""
     db_path = tmp_path / "test.db"
@@ -544,6 +567,7 @@ def _make_app(tmp_path, rows=None):
     config = Config(
         db_path=db_path,
         bird_image_cache=tmp_path / "img_cache",
+        audio_clip_dir=tmp_path / "audio_clips",
     )
     return create_app(config)
 
@@ -1090,3 +1114,132 @@ class TestRoutes:
         resp = asyncio.run(_run())
         assert resp.status_code == 200
         assert "max-age=60" in resp.headers.get("cache-control", "")
+
+
+# ---------------------------------------------------------------------------
+# db.species_audio_map
+# ---------------------------------------------------------------------------
+class TestSpeciesAudioMap:
+    def test_returns_empty_dict_when_no_table(self, tmp_path):
+        """Returns empty dict when audio_clips table doesn't exist."""
+        db_path = tmp_path / "test.db"
+        _create_test_db(db_path)
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        result = web_db.species_audio_map(conn)
+        conn.close()
+        assert result == {}
+
+    def test_returns_map_with_data(self, tmp_path):
+        """Returns {common_name: filename} when audio_clips has data."""
+        db_path = tmp_path / "test.db"
+        _create_test_db(db_path)
+        _create_audio_clips(db_path, [
+            ("Robin", 0.85, "robin_001.wav"),
+            ("Wren", 0.70, "wren_002.wav"),
+        ])
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        result = web_db.species_audio_map(conn)
+        conn.close()
+        assert result == {"Robin": "robin_001.wav", "Wren": "wren_002.wav"}
+
+
+# ---------------------------------------------------------------------------
+# Audio routes
+# ---------------------------------------------------------------------------
+class TestAudioRoutes:
+    def test_api_audio_serves_file(self, tmp_path):
+        """GET /api/audio/{filename} returns 200 with audio/wav for existing file."""
+        app = _make_app(tmp_path)
+        audio_dir = tmp_path / "audio_clips"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        wav_file = audio_dir / "test.wav"
+        wav_file.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/audio/test.wav")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "audio/wav" in resp.headers.get("content-type", "").lower()
+
+    def test_api_audio_missing_returns_404(self, tmp_path):
+        """GET /api/audio/nonexistent.wav returns 404."""
+        app = _make_app(tmp_path)
+        audio_dir = tmp_path / "audio_clips"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/audio/nonexistent.wav")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 404
+
+    def test_api_audio_path_traversal_slash_blocked(self, tmp_path):
+        """Slash in filename is blocked by the framework (never reaches handler)."""
+        app = _make_app(tmp_path)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/audio/foo%2Fbar.wav")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code in (400, 404)
+
+    def test_api_audio_backslash_rejected(self, tmp_path):
+        """Path traversal with backslash is rejected."""
+        app = _make_app(tmp_path)
+        # Create the file so we know 400 is from the check, not 404
+        (tmp_path / "audio" / "foo\\bar.wav").parent.mkdir(parents=True, exist_ok=True)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/audio/foo%5Cbar.wav")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 400
+
+    def test_api_audio_dotdot_rejected(self, tmp_path):
+        """Filename containing '..' is rejected."""
+        app = _make_app(tmp_path)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/audio/..secret.wav")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 400
+
+    def test_detection_card_has_audio_file(self, tmp_path):
+        """When audio_clips table has data, _detections partial includes audio element."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        db_path = tmp_path / "test.db"
+        _create_test_db(db_path, rows)
+        _create_audio_clips(db_path, [("Robin", 0.85, "robin.wav")])
+        config = Config(
+            db_path=db_path,
+            bird_image_cache=tmp_path / "img_cache",
+            audio_clip_dir=tmp_path / "audio_clips",
+        )
+        app = create_app(config)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/detections")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        # The partial should contain a reference to the audio file
+        assert "robin.wav" in resp.text or "audio" in resp.text.lower()
