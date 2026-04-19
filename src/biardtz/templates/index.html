@@ -1,21 +1,41 @@
 {% extends "base.html" %}
 {% block content %}
 
-<!-- Summary cards -->
-<div class="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
-    <div class="bg-white rounded-xl shadow p-3 sm:p-4 text-center">
+<!-- Summary cards (clickable) -->
+<div class="grid grid-cols-3 gap-2 sm:gap-4 mb-0">
+    <div id="card-today"
+         onclick="toggleBannerChart('today')"
+         class="bg-white rounded-xl shadow p-3 sm:p-4 text-center cursor-pointer
+                hover:ring-2 hover:ring-emerald-400 transition select-none">
         <div class="text-2xl sm:text-3xl font-bold text-emerald-600">{{ stats.today_count }}</div>
         <div class="text-xs sm:text-sm text-stone-500">Today</div>
     </div>
-    <div class="bg-white rounded-xl shadow p-3 sm:p-4 text-center">
+    <div id="card-species"
+         onclick="toggleBannerChart('species')"
+         class="bg-white rounded-xl shadow p-3 sm:p-4 text-center cursor-pointer
+                hover:ring-2 hover:ring-amber-400 transition select-none">
         <div class="text-2xl sm:text-3xl font-bold text-amber-600">{{ stats.today_species }}</div>
         <div class="text-xs sm:text-sm text-stone-500">Species Today</div>
     </div>
-    <div class="bg-white rounded-xl shadow p-3 sm:p-4 text-center">
+    <div id="card-alltime"
+         onclick="toggleBannerChart('alltime')"
+         class="bg-white rounded-xl shadow p-3 sm:p-4 text-center cursor-pointer
+                hover:ring-2 hover:ring-sky-400 transition select-none">
         <div class="text-2xl sm:text-3xl font-bold text-sky-600">{{ stats.all_time_species }}</div>
         <div class="text-xs sm:text-sm text-stone-500">All Time</div>
     </div>
 </div>
+
+<!-- Banner chart panel (hidden until a card is clicked) -->
+<div id="banner-chart-panel" class="hidden mb-4 sm:mb-6 mt-2">
+    <div class="bg-white rounded-xl shadow-sm p-4">
+        <h3 id="banner-chart-title" class="text-sm font-semibold text-stone-600 mb-2"></h3>
+        <div style="position:relative; height:250px;">
+            <canvas id="banner-chart"></canvas>
+        </div>
+    </div>
+</div>
+<div id="banner-spacer" class="mb-4 sm:mb-6"></div>
 
 <!-- Tab navigation (mobile) / hidden on desktop -->
 <div class="flex gap-1 mb-4 md:hidden" role="tablist">
@@ -97,6 +117,117 @@ function switchTab(btn) {
     });
     btn.classList.remove('bg-stone-100', 'text-stone-600', 'hover:bg-stone-200');
     btn.classList.add('bg-emerald-600', 'text-white');
+}
+
+/* Banner chart toggle */
+var bannerChart = null;
+var activePanel = null;
+var ringClasses = {
+    today: ['ring-2', 'ring-emerald-400'],
+    species: ['ring-2', 'ring-amber-400'],
+    alltime: ['ring-2', 'ring-sky-400']
+};
+var cardIds = {today: 'card-today', species: 'card-species', alltime: 'card-alltime'};
+
+function clearCardRings() {
+    Object.values(cardIds).forEach(function(id) {
+        var el = document.getElementById(id);
+        el.classList.remove('ring-2', 'ring-emerald-400', 'ring-amber-400', 'ring-sky-400');
+    });
+}
+
+function toggleBannerChart(type) {
+    var panel = document.getElementById('banner-chart-panel');
+    var spacer = document.getElementById('banner-spacer');
+
+    if (activePanel === type) {
+        panel.classList.add('hidden');
+        spacer.classList.remove('hidden');
+        clearCardRings();
+        activePanel = null;
+        return;
+    }
+
+    activePanel = type;
+    clearCardRings();
+    var card = document.getElementById(cardIds[type]);
+    ringClasses[type].forEach(function(c) { card.classList.add(c); });
+
+    var url, title;
+    if (type === 'today') {
+        url = '/api/charts/timeline?days=1';
+        title = 'Detections by Hour — Today';
+    } else if (type === 'species') {
+        url = '/api/charts/species?days=1&limit=50';
+        title = 'Species Detected — Today';
+    } else {
+        url = '/api/charts/species?days=3650&limit=50';
+        title = 'Species Detected — All Time';
+    }
+
+    document.getElementById('banner-chart-title').textContent = title;
+    panel.classList.remove('hidden');
+    spacer.classList.add('hidden');
+
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (bannerChart) bannerChart.destroy();
+            var ctx = document.getElementById('banner-chart').getContext('2d');
+            bannerChart = new Chart(ctx, buildBannerConfig(type, data));
+        });
+}
+
+function buildBannerConfig(type, data) {
+    if (type === 'today') {
+        return {
+            type: 'bar',
+            data: {
+                labels: data.map(function(d) { return d.hour.slice(11, 16); }),
+                datasets: [{
+                    data: data.map(function(d) { return d.count; }),
+                    backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { precision: 0 } }
+                }
+            }
+        };
+    }
+    /* species (today) or alltime — horizontal bar */
+    var color = type === 'species'
+        ? { bg: 'rgba(245, 158, 11, 0.6)', border: 'rgba(245, 158, 11, 1)' }
+        : { bg: 'rgba(14, 165, 233, 0.6)', border: 'rgba(14, 165, 233, 1)' };
+    return {
+        type: 'bar',
+        data: {
+            labels: data.map(function(d) { return d.common_name; }),
+            datasets: [{
+                data: data.map(function(d) { return d.count; }),
+                backgroundColor: color.bg,
+                borderColor: color.border,
+                borderWidth: 1,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { beginAtZero: true, ticks: { precision: 0 } },
+                y: { grid: { display: false } }
+            }
+        }
+    };
 }
 </script>
 
