@@ -211,13 +211,15 @@ sudo bash systemd/install.sh
 ### Manage
 
 ```bash
-sudo systemctl start biardtz      # Start
-sudo systemctl stop biardtz       # Stop
-sudo systemctl restart biardtz    # Restart
+make start                        # Start service, confirm running
+make stop                         # Stop service, confirm stopped
+make restart                      # Restart service, confirm running
 sudo systemctl status biardtz     # Check status
 sudo systemctl enable biardtz     # Enable auto-start on boot
 sudo systemctl disable biardtz    # Disable auto-start
 ```
+
+These targets use `sudo systemctl` under the hood. `make start` and `make restart` wait 1 second then confirm the service is running, or suggest `make logs` if it failed.
 
 ### View logs
 

@@ -51,10 +51,10 @@ biardtz diagnose     # Full diagnostic: process, systemd, tailscale, audio, erro
 
 ```bash
 sudo bash systemd/install.sh          # Install and enable service
-sudo systemctl start biardtz          # Start now
-sudo systemctl stop biardtz           # Stop
-sudo systemctl restart biardtz        # Restart
-sudo systemctl status biardtz         # Check status
+make start                             # Start service, confirm running
+make stop                              # Stop service, confirm stopped
+make restart                           # Restart service, confirm running
+sudo systemctl status biardtz          # Check status
 journalctl -u biardtz -f              # Follow live logs
 ```
 
@@ -111,6 +111,9 @@ make docs-pdf          # Generate PDF guide via pandoc
 make cheatsheet        # Print this cheatsheet to terminal
 make release KIND=patch  # Tag and push a release (patch/minor/major)
 make verify            # Run all installation verification checks
+make start             # Start biardtz systemd service
+make stop              # Stop biardtz systemd service
+make restart           # Restart biardtz systemd service
 ```
 
 ## Database maintenance
