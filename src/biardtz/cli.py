@@ -128,6 +128,7 @@ def status():
         click.echo("No heartbeat found — pipeline is not running or never started.")
         raise SystemExit(1)
 
+    click.echo(click.style(f"biardtz v{__version__}", bold=True))
     status_val = hb.get("status", "unknown")
     colors = {"ok": "green", "degraded": "yellow", "stopped": "red"}
     color = colors.get(status_val, "red")
