@@ -61,13 +61,14 @@ UNIT_DIR   := tests/unit
 INTEG_DIR  := tests/integration
 SYSTEM_DIR := tests/system  # live/system tests (opt-in, uncached)
 
-.PHONY: help venv bootstrap precommit docs lint format \
+.PHONY: help venv bootstrap precommit docs docs-pdf cheatsheet lint format \
         test test-all test-live test-full clean-tests \
         build upload version fetch-tags changelog changelog-md \
         release-show release release-patch release-minor release-major \
         clean run-cli check-clean \
         verify verify-env verify-hw verify-audio verify-model verify-e2e \
-        db-backup db-export db-vacuum
+        db-backup db-export db-vacuum \
+        status diagnose logs logs-errors tail-logs heartbeat
 
 help:
 	@echo "Common targets:"
@@ -75,6 +76,8 @@ help:
 	@echo "  make bootstrap           - create $(VENV) and install .[dev]"
 	@echo "  make precommit           - install pre-commit hook (requires bootstrap)"
 	@echo "  make docs                - build Sphinx/MyST docs to docs/_build/html"
+	@echo "  make docs-pdf            - generate PDF guide via pandoc"
+	@echo "  make cheatsheet          - print the CLI cheatsheet to terminal"
 	@echo "  make lint                - run Ruff checks"
 	@echo "  make format              - auto-fix via Ruff"
 	@echo "  make test                - run cached unit+integration tests (not live)"
@@ -97,6 +100,14 @@ help:
 	@echo "  make verify-e2e          - end-to-end 10s run with temp db"
 	@echo "  make verify              - run all verification checks"
 	@echo "  make run-cli             - run via python -m package (pass CLI_ARGS=...)"
+	@echo ""
+	@echo "Monitoring & debugging:"
+	@echo "  make status              - pipeline health (biardtz status)"
+	@echo "  make diagnose            - full diagnostics (biardtz diagnose)"
+	@echo "  make logs                - follow live journal logs"
+	@echo "  make logs-errors         - show recent ERROR lines from log file"
+	@echo "  make tail-logs           - tail the rotating log file"
+	@echo "  make heartbeat           - show raw heartbeat JSON"
 	@echo ""
 	@echo "Database maintenance:"
 	@echo "  make db-backup           - back up SQLite db to SD card"
@@ -122,6 +133,58 @@ precommit: bootstrap
 # Docs
 docs: $(ENV_STAMP)
 	"$(PY)" -m sphinx -b html docs docs/_build/html
+
+docs-pdf:
+	@command -v pandoc >/dev/null 2>&1 || { echo "Install pandoc: sudo apt install -y pandoc texlive-xetex texlive-fonts-recommended"; exit 1; }
+	pandoc docs/biardtz_guide.md -o biardtz_guide.pdf \
+		--pdf-engine=xelatex \
+		-V geometry:margin=2.5cm \
+		-V fontsize=11pt \
+		-V colorlinks=true \
+		--toc --toc-depth=2 \
+		-V title="biardtz User Guide" \
+		-V author="Kevin Steptoe" \
+		-V date="$$(date +'%B %Y')"
+	@echo "Created biardtz_guide.pdf"
+
+cheatsheet:
+	@cat docs/cheatsheet.md
+
+# -----------------------------------------------------------------------------#
+# Monitoring & Debugging
+
+HEARTBEAT_FILE ?= /mnt/ssd/biardtz/heartbeat.json
+LOG_FILE       ?= /mnt/ssd/biardtz/logs/biardtz.log
+
+status: $(ENV_STAMP)
+	"$(PY)" -m biardtz status
+
+diagnose: $(ENV_STAMP)
+	"$(PY)" -m biardtz diagnose
+
+logs:
+	journalctl -u biardtz -f
+
+logs-errors:
+	@if [ -f "$(LOG_FILE)" ]; then \
+		grep "ERROR" "$(LOG_FILE)" | tail -20; \
+	else \
+		echo "No log file at $(LOG_FILE)"; \
+	fi
+
+tail-logs:
+	@if [ -f "$(LOG_FILE)" ]; then \
+		tail -f "$(LOG_FILE)"; \
+	else \
+		echo "No log file at $(LOG_FILE)"; \
+	fi
+
+heartbeat:
+	@if [ -f "$(HEARTBEAT_FILE)" ]; then \
+		cat "$(HEARTBEAT_FILE)" | "$(PY)" -m json.tool; \
+	else \
+		echo "No heartbeat file at $(HEARTBEAT_FILE)"; \
+	fi
 
 # -----------------------------------------------------------------------------#
 # Linting / Formatting
