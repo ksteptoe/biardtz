@@ -29,6 +29,7 @@ class TestPipeline:
             birdnet_path=birdnet_dir,
             confidence_threshold=0.25,
             enable_dashboard=False,
+            audio_clip_dir=tmp_path / "audio_clips",
         )
 
         # Set up detector with mocked _load_model and _predict_sync
