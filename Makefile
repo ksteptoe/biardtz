@@ -68,7 +68,8 @@ SYSTEM_DIR := tests/system  # live/system tests (opt-in, uncached)
         clean run-cli check-clean \
         verify verify-env verify-hw verify-audio verify-model verify-e2e \
         db-backup db-export db-vacuum \
-        status diagnose logs logs-errors tail-logs heartbeat
+        status diagnose logs logs-errors tail-logs heartbeat \
+        stop start restart
 
 help:
 	@echo "Common targets:"
@@ -108,6 +109,11 @@ help:
 	@echo "  make logs-errors         - show recent ERROR lines from log file"
 	@echo "  make tail-logs           - tail the rotating log file"
 	@echo "  make heartbeat           - show raw heartbeat JSON"
+	@echo ""
+	@echo "Service control:"
+	@echo "  make stop                - stop biardtz systemd service"
+	@echo "  make start               - start biardtz systemd service"
+	@echo "  make restart             - restart biardtz systemd service"
 	@echo ""
 	@echo "Database maintenance:"
 	@echo "  make db-backup           - back up SQLite db to SD card"
@@ -155,6 +161,23 @@ cheatsheet:
 
 HEARTBEAT_FILE ?= /mnt/ssd/biardtz/heartbeat.json
 LOG_FILE       ?= /mnt/ssd/biardtz/logs/biardtz.log
+
+stop:
+	@echo "Stopping biardtz service..."
+	sudo systemctl stop biardtz
+	@systemctl is-active --quiet biardtz && echo "⚠ Service still running" || echo "Service stopped"
+
+start:
+	@echo "Starting biardtz service..."
+	sudo systemctl start biardtz
+	@sleep 1
+	@systemctl is-active --quiet biardtz && echo "Service started" || echo "⚠ Service failed to start — check: make logs"
+
+restart:
+	@echo "Restarting biardtz service..."
+	sudo systemctl restart biardtz
+	@sleep 1
+	@systemctl is-active --quiet biardtz && echo "Service restarted" || echo "⚠ Service failed to start — check: make logs"
 
 status: $(ENV_STAMP)
 	"$(PY)" -m biardtz status
