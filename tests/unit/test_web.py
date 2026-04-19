@@ -1246,6 +1246,90 @@ class TestAudioRoutes:
 
 
 # ---------------------------------------------------------------------------
+# Drill-down feature
+# ---------------------------------------------------------------------------
+class TestDrillDown:
+    def test_partials_detections_species_filter(self, tmp_path):
+        """GET /partials/detections?species=Robin returns only Robin detections."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+            (now, "Blackbird", "Turdus merula", 0.70, 180.0, "S"),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/detections?species=Robin")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Robin" in resp.text
+        assert "Blackbird" not in resp.text
+        assert "Wren" not in resp.text
+
+    def test_partials_detections_combined_species_and_date(self, tmp_path):
+        """GET /partials/detections?species=Robin&date_from=X&date_to=Y filters both."""
+        rows = [
+            ("2025-01-15T08:00:00", "Robin", "Erithacus rubecula", 0.85, None, None),
+            ("2025-06-15T09:00:00", "Robin", "Erithacus rubecula", 0.90, None, None),
+            ("2025-06-15T10:00:00", "Blackbird", "Turdus merula", 0.70, None, None),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get(
+                    "/partials/detections?species=Robin"
+                    "&date_from=2025-06-01T00:00:00&date_to=2025-07-01T00:00:00"
+                )
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "Robin" in resp.text
+        # January Robin excluded by date range
+        # Blackbird excluded by species filter
+        assert "Blackbird" not in resp.text
+
+    def test_index_contains_drill_down_panel(self, tmp_path):
+        """GET / response contains the drill-down panel div."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert 'id="drill-down-panel"' in resp.text
+
+    def test_index_contains_drill_down_js(self, tmp_path):
+        """GET / response contains the drillDown JavaScript function."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, 45.0, "NE"),
+        ]
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "function drillDown" in resp.text
+
+
+# ---------------------------------------------------------------------------
 # image_cache — async functions
 # ---------------------------------------------------------------------------
 class TestImageCache:

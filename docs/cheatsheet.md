@@ -68,6 +68,8 @@ journalctl -u biardtz -f              # Follow live logs
 
 Detection rows include a play button for species that have a saved audio clip. Clicking play stops any other clip that is currently playing.
 
+The three summary banners (Today, Species Today, All Time) support two-level drill-down: click a banner to see a bar chart, then click any bar to see individual detection cards for that slice. A close button (X) dismisses the drill-down.
+
 ## Monitoring & debugging
 
 ```bash

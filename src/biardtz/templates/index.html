@@ -35,6 +35,22 @@
         </div>
     </div>
 </div>
+<!-- Drill-down results panel (hidden until a chart bar is clicked) -->
+<div id="drill-down-panel" class="hidden mt-2 mb-4 sm:mb-6">
+    <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 id="drill-down-title" class="text-sm font-semibold text-stone-600"></h3>
+            <button onclick="closeDrillDown()"
+                    class="text-stone-400 hover:text-stone-600 transition p-1"
+                    title="Close">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div id="drill-down-results"></div>
+    </div>
+</div>
 <div id="banner-spacer" class="mb-4 sm:mb-6"></div>
 
 <!-- Tab navigation (mobile) / hidden on desktop -->
@@ -121,6 +137,8 @@ function switchTab(btn) {
 
 /* Banner chart toggle */
 var bannerChart = null;
+var bannerData = null;
+var bannerType = null;
 var activePanel = null;
 var ringClasses = {
     today: ['ring-2', 'ring-emerald-400'],
@@ -144,6 +162,7 @@ function toggleBannerChart(type) {
         panel.classList.add('hidden');
         spacer.classList.remove('hidden');
         clearCardRings();
+        closeDrillDown();
         activePanel = null;
         return;
     }
@@ -169,9 +188,12 @@ function toggleBannerChart(type) {
     panel.classList.remove('hidden');
     spacer.classList.add('hidden');
 
+    closeDrillDown();
     fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(data) {
+            bannerData = data;
+            bannerType = type;
             if (bannerChart) bannerChart.destroy();
             var ctx = document.getElementById('banner-chart').getContext('2d');
             bannerChart = new Chart(ctx, buildBannerConfig(type, data));
@@ -198,7 +220,8 @@ function buildBannerConfig(type, data) {
                 scales: {
                     x: { grid: { display: false } },
                     y: { beginAtZero: true, ticks: { precision: 0 } }
-                }
+                },
+                onClick: function(evt, els) { if (els.length) drillDown(els[0].index); }
             }
         };
     }
@@ -225,9 +248,57 @@ function buildBannerConfig(type, data) {
             scales: {
                 x: { beginAtZero: true, ticks: { precision: 0 } },
                 y: { grid: { display: false } }
-            }
+            },
+            onClick: function(evt, els) { if (els.length) drillDown(els[0].index); }
         }
     };
+}
+
+/* Drill-down: click a chart bar to see individual detections */
+function drillDown(index) {
+    if (!bannerData || !bannerData[index]) return;
+    var item = bannerData[index];
+    var params = 'limit=50';
+    var title = '';
+
+    if (bannerType === 'today') {
+        /* item.hour is like "2026-04-19T07:00:00" */
+        var hourStr = item.hour;
+        var d = new Date(hourStr);
+        var next = new Date(d.getTime() + 3600000);
+        params += '&date_from=' + encodeURIComponent(hourStr);
+        params += '&date_to=' + encodeURIComponent(next.toISOString().slice(0, 19));
+        title = 'Detections at ' + hourStr.slice(11, 16);
+    } else if (bannerType === 'species') {
+        /* today's species — add today's date range */
+        var now = new Date();
+        var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        params += '&species=' + encodeURIComponent(item.common_name);
+        params += '&date_from=' + encodeURIComponent(todayStart);
+        title = item.common_name + ' — Today';
+    } else {
+        /* alltime — just species filter */
+        params += '&species=' + encodeURIComponent(item.common_name);
+        title = item.common_name + ' — All Time';
+    }
+
+    var panel = document.getElementById('drill-down-panel');
+    var results = document.getElementById('drill-down-results');
+    document.getElementById('drill-down-title').textContent = title;
+    results.innerHTML = '<div class="text-center text-stone-400 py-8">Loading...</div>';
+    panel.classList.remove('hidden');
+
+    fetch('/partials/detections?' + params)
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+            results.innerHTML = html;
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+}
+
+function closeDrillDown() {
+    document.getElementById('drill-down-panel').classList.add('hidden');
+    document.getElementById('drill-down-results').innerHTML = '';
 }
 </script>
 

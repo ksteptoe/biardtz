@@ -14,6 +14,7 @@ A passive, always-on bird identification station that listens via a ReSpeaker US
 - Audio clip playback --- saves the best sample per species and plays it from the dashboard
 - Web dashboard with detection filtering, search, species leaderboard, and date range selection
 - Chart.js visualisations: detection timeline, daily trend, species frequency, and activity heatmap
+- Two-level drill-down: click a stat banner for a bar chart, click a bar to see individual detection cards
 - Mobile-first responsive layout with tab navigation (Live/Charts/Species) and two-column desktop view
 - Server-side chart caching and loading skeletons for fast page loads
 - Rich terminal dashboard for headless monitoring

@@ -177,6 +177,11 @@ Works from anywhere --- home, work, or mobile data.
 ### What you see
 
 - **Summary cards** --- today's detections, today's species, all-time species count
+- **Drill-down charts** --- click any summary card to reveal a bar chart; click a bar in the chart to see individual detection cards for that slice
+  - **Today** --- click the card to see hourly counts, then click an hour bar to list all detections for that hour
+  - **Species Today** --- click the card to see species counts, then click a species bar to list all detections for that species today
+  - **All Time** --- click the card to see species counts, then click a species bar to list all-time detections for that species
+  - A close button (X) dismisses the drill-down results; switching cards also clears them
 - **Recent detections** --- bird name, confidence bar, compass direction, photo, and play button
 - **Audio clip playback** --- click the play button on any detection row to hear the best recorded sample for that species; clicking play on another row stops the current clip
 - **Species leaderboard** --- ranked by detection count
