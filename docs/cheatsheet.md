@@ -116,6 +116,29 @@ make stop              # Stop biardtz systemd service
 make restart           # Restart biardtz systemd service
 ```
 
+## Web API
+
+All endpoints are available when the web dashboard is running (default port 8080).
+
+| Endpoint | Parameters | Description |
+|----------|------------|-------------|
+| `GET /api/detections` | `limit`, `offset`, `species`, `min_confidence`, `date_from`, `date_to`, `search` | Recent detections as JSON |
+| `GET /api/species` | `q` | Species list with optional search |
+| `GET /api/charts/timeline` | `days` (default 7) | Hourly detection counts |
+| `GET /api/charts/species` | `days` (default 30), `limit` (default 15) | Top species by count |
+| `GET /api/charts/heatmap` | `days` (default 30) | Activity heatmap (day-of-week x hour) |
+| `GET /api/charts/trend` | `days` (default 30) | Daily detection and species counts |
+| `GET /api/image/{sci_name}` | | Bird photo (cached from Wikipedia) |
+| `GET /api/audio/{filename}` | | Audio clip WAV file |
+
+Chart endpoints are cached server-side (60s TTL) with `Cache-Control: max-age=60`.
+
+```bash
+curl http://localhost:8080/api/detections?limit=5
+curl http://localhost:8080/api/species?q=robin
+curl http://localhost:8080/api/charts/timeline?days=7
+```
+
 ## Database maintenance
 
 ```bash

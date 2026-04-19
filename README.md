@@ -36,12 +36,20 @@ biardtz --help
 Key CLI options:
 
 ```
---lat FLOAT       Latitude for species filtering (default: 51.50)
---lon FLOAT       Longitude for species filtering (default: -0.12)
---threshold FLOAT Minimum confidence 0.0-1.0 (default: 0.25)
---device INT      Audio device index (None = system default)
+--location, -l TEXT  Town/city for species filtering (default: London)
+--threshold FLOAT    Minimum confidence 0.0-1.0 (default: 0.25)
+--device INT         Audio device index (None = system default)
+--array-bearing FLOAT  Compass bearing the mic array faces (default: 0.0)
 --dashboard/--no-dashboard  Enable Rich live dashboard (default: on)
--v / -vv          Verbosity (info / debug)
+--web/--no-web       Enable web dashboard (default: on)
+-v / -vv             Verbosity (info / debug)
+```
+
+Subcommands:
+
+```
+biardtz status     # Pipeline health from heartbeat file
+biardtz diagnose   # Full diagnostic: process, systemd, audio, errors
 ```
 
 ## Development

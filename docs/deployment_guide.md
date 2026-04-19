@@ -481,8 +481,7 @@ biardtz
 
 ```bash
 biardtz \
-    --lat 51.50 \
-    --lon -0.12 \
+    --location "Biarritz, France" \
     --threshold 0.25 \
     --db-path /mnt/ssd/detections.db \
     --dashboard \
@@ -493,16 +492,17 @@ biardtz \
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--lat` | 51.50 | Latitude for species filtering |
-| `--lon` | -0.12 | Longitude for species filtering |
+| `--location, -l` | `London` | Town/city name for species filtering (geocoded automatically) |
 | `--threshold` | 0.25 | Minimum confidence (0.0-1.0) |
 | `--db-path` | `/mnt/ssd/detections.db` | SQLite database path |
 | `--device` | system default | Audio device index |
 | `--birdnet-path` | `../BirdNET-Analyzer` | Path to BirdNET-Analyzer directory |
+| `--array-bearing` | `0.0` | Compass bearing (degrees) the mic array faces |
 | `--dashboard/--no-dashboard` | enabled | Rich live terminal dashboard |
 | `--web/--no-web` | enabled | Web dashboard on local network |
 | `--web-port` | 8080 | Port for the web dashboard |
 | `-v` / `-vv` | warnings only | Verbosity: `-v` info, `-vv` debug |
+| `--version` | | Print version and exit |
 
 ## Step 13: Run as a service (optional)
 

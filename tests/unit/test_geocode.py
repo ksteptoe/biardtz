@@ -31,3 +31,29 @@ class TestResolveLocation:
 
         with pytest.raises(ValueError, match="Could not find location"):
             resolve_location("xyznonexistent99")
+
+    @patch("biardtz.geocode._tzfinder")
+    @patch("biardtz.geocode._geolocator")
+    def test_timezone_finder_returns_none_falls_back_to_utc(self, mock_geolocator, mock_tzfinder):
+        """When TimezoneFinder returns None (e.g. ocean coords), fall back to UTC."""
+        mock_location = MagicMock()
+        mock_location.latitude = 0.0
+        mock_location.longitude = 0.0
+        mock_location.address = "Null Island"
+        mock_geolocator.geocode.return_value = mock_location
+        mock_tzfinder.timezone_at.return_value = None
+
+        lat, lon, display, tz_name = resolve_location("Null Island")
+        assert tz_name == "UTC"
+        assert lat == 0.0
+        assert lon == 0.0
+
+    @patch("biardtz.geocode._geolocator")
+    def test_network_error_propagates(self, mock_geolocator):
+        """Network errors from geocoder should propagate to the caller."""
+        from geopy.exc import GeocoderServiceError
+
+        mock_geolocator.geocode.side_effect = GeocoderServiceError("Connection refused")
+
+        with pytest.raises(GeocoderServiceError):
+            resolve_location("Biarritz")

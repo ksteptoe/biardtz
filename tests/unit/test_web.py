@@ -13,7 +13,7 @@ import httpx
 from biardtz.config import Config
 from biardtz.web import _make_format_time, create_app
 from biardtz.web import db as web_db
-from biardtz.web.image_cache import _slug
+from biardtz.web.image_cache import _fetch_image_url, _slug, get_image_path
 
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS detections (
@@ -1243,3 +1243,162 @@ class TestAudioRoutes:
         assert resp.status_code == 200
         # The partial should contain a reference to the audio file
         assert "robin.wav" in resp.text or "audio" in resp.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# image_cache — async functions
+# ---------------------------------------------------------------------------
+class TestImageCache:
+    def test_cache_hit_returns_path_without_fetch(self, tmp_path):
+        """When the cached .jpg already exists, return it immediately."""
+        cache_dir = tmp_path / "img_cache"
+        cache_dir.mkdir()
+        cached_file = cache_dir / "erithacus_rubecula.jpg"
+        cached_file.write_bytes(b"\xff\xd8\xff")
+
+        async def _run():
+            return await get_image_path("Erithacus rubecula", cache_dir)
+
+        result = asyncio.run(_run())
+        assert result == cached_file
+
+    def test_cache_miss_fetches_and_saves(self, tmp_path):
+        """On cache miss, fetch from Wikidata and save to cache_dir."""
+        cache_dir = tmp_path / "img_cache"
+        cache_dir.mkdir()
+
+        # Build a minimal valid JPEG-like image via PIL
+        from io import BytesIO
+
+        from PIL import Image
+
+        img_buf = BytesIO()
+        Image.new("RGB", (100, 100), "red").save(img_buf, "JPEG")
+        img_bytes = img_buf.getvalue()
+
+        mock_thumb_url = "https://upload.wikimedia.org/thumb/test.jpg"
+
+        async def _run():
+            with patch(
+                "biardtz.web.image_cache._fetch_image_url",
+                new_callable=AsyncMock,
+                return_value=mock_thumb_url,
+            ):
+                mock_resp = AsyncMock()
+                mock_resp.status_code = 200
+                mock_resp.content = img_bytes
+
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(return_value=mock_resp)
+                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_client.__aexit__ = AsyncMock(return_value=False)
+
+                with patch("biardtz.web.image_cache.httpx.AsyncClient", return_value=mock_client):
+                    return await get_image_path("Erithacus rubecula", cache_dir)
+
+        result = asyncio.run(_run())
+        assert result is not None
+        assert result.exists()
+        assert result.name == "erithacus_rubecula.jpg"
+
+    def test_fetch_failure_creates_marker(self, tmp_path):
+        """When fetch fails, a .none marker is created and None returned."""
+        cache_dir = tmp_path / "img_cache"
+        cache_dir.mkdir()
+
+        async def _run():
+            with patch(
+                "biardtz.web.image_cache._fetch_image_url",
+                new_callable=AsyncMock,
+                return_value=None,
+            ):
+                return await get_image_path("Erithacus rubecula", cache_dir)
+
+        result = asyncio.run(_run())
+        assert result is None
+        assert (cache_dir / "erithacus_rubecula.none").exists()
+
+    def test_marker_file_returns_none_immediately(self, tmp_path):
+        """When .none marker exists, return None without fetching."""
+        cache_dir = tmp_path / "img_cache"
+        cache_dir.mkdir()
+        marker = cache_dir / "erithacus_rubecula.none"
+        marker.touch()
+
+        async def _run():
+            return await get_image_path("Erithacus rubecula", cache_dir)
+
+        result = asyncio.run(_run())
+        assert result is None
+
+    def test_fetch_image_url_extracts_url(self):
+        """_fetch_image_url parses Wikidata API response to get image URL."""
+        from unittest.mock import MagicMock
+
+        async def _run():
+            search_resp = MagicMock()
+            search_resp.json.return_value = {
+                "search": [{"id": "Q25394"}],
+            }
+            claims_resp = MagicMock()
+            claims_resp.json.return_value = {
+                "claims": {
+                    "P18": [
+                        {"mainsnak": {"datavalue": {"value": "Robin_test.jpg"}}},
+                    ],
+                },
+            }
+
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=[search_resp, claims_resp])
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+
+            with patch("biardtz.web.image_cache.httpx.AsyncClient", return_value=mock_client):
+                return await _fetch_image_url("Erithacus rubecula")
+
+        result = asyncio.run(_run())
+        assert result is not None
+        assert "Robin_test.jpg" in result
+
+    def test_fetch_image_url_returns_none_when_no_results(self):
+        """_fetch_image_url returns None when Wikidata search finds nothing."""
+        from unittest.mock import MagicMock
+
+        async def _run():
+            search_resp = MagicMock()
+            search_resp.json.return_value = {"search": []}
+
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=search_resp)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+
+            with patch("biardtz.web.image_cache.httpx.AsyncClient", return_value=mock_client):
+                return await _fetch_image_url("Nonexistent bird")
+
+        result = asyncio.run(_run())
+        assert result is None
+
+    def test_fetch_image_url_returns_none_when_no_p18_claim(self):
+        """_fetch_image_url returns None when entity has no P18 (image) claim."""
+        from unittest.mock import MagicMock
+
+        async def _run():
+            search_resp = MagicMock()
+            search_resp.json.return_value = {
+                "search": [{"id": "Q12345"}],
+            }
+            claims_resp = MagicMock()
+            claims_resp.json.return_value = {"claims": {}}
+
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=[search_resp, claims_resp])
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+
+            with patch("biardtz.web.image_cache.httpx.AsyncClient", return_value=mock_client):
+                return await _fetch_image_url("Some bird")
+
+        result = asyncio.run(_run())
+        assert result is None

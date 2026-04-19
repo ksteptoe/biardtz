@@ -167,6 +167,89 @@ class TestDetectionWorker:
         assert detector.predict.call_count == 2
         det_logger.log.assert_not_called()
 
+    def test_doa_estimation_with_multichannel(self, detector, det_logger, tmp_path):
+        """When multichannel data is provided, estimate_doa is called and bearing/direction set."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Robin", "Erithacus rubecula", 0.9)
+        detector.predict = AsyncMock(return_value=[det])
+        det_logger.get_audio_confidence = AsyncMock(return_value=None)
+
+        config = Config(
+            audio_clip_dir=tmp_path / "clips",
+            sample_rate=48_000,
+            array_bearing=0.0,
+        )
+
+        mono = np.zeros(100, dtype=np.float32)
+        multichannel = np.zeros((100, 4), dtype=np.float32)
+
+        audio_q = asyncio.Queue()
+        audio_q.put_nowait((mono, multichannel))
+
+        async def run():
+            with patch("biardtz.main.estimate_doa", return_value=(45.0, "NE")) as mock_doa:
+                task = asyncio.create_task(
+                    _detection_worker(detector, audio_q, det_logger, None, config=config)
+                )
+                await asyncio.sleep(0.05)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+                return mock_doa
+
+        mock_doa = asyncio.run(run())
+        mock_doa.assert_called_once()
+        # Verify the logged detection has bearing and direction set
+        logged_det = det_logger.log.call_args[0][0]
+        assert logged_det.bearing == 45.0
+        assert logged_det.direction == "NE"
+
+    def test_health_mark_detection_called(self, detector, det_logger):
+        """health.mark_detection() is called after logging a detection."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Robin", "Erithacus rubecula", 0.9)
+        detector.predict = AsyncMock(return_value=[det])
+
+        health = MagicMock()
+        audio_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, None, health=health)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        health.mark_detection.assert_called_once()
+        det_logger.log.assert_called_once()
+
+    def test_health_record_error_on_inference_failure(self, detector, det_logger):
+        """health.record_error() is called when inference raises."""
+        from biardtz.main import _detection_worker
+
+        detector.predict = AsyncMock(side_effect=RuntimeError("model crash"))
+        health = MagicMock()
+        audio_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, None, health=health)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        health.record_error.assert_called_once_with("Inference error")
+
 
 class TestRun:
     """Tests for the run() orchestrator."""

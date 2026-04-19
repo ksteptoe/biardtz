@@ -309,7 +309,7 @@ The systemd watchdog uses this heartbeat --- if no update arrives within 60 seco
 When the web dashboard is running, you can also query detections programmatically:
 
 ```bash
-# Recent detections as JSON
+# Recent detections as JSON (supports limit, offset, species, min_confidence, date_from, date_to, search)
 curl http://localhost:8080/api/detections?limit=10
 
 # Bird image by scientific name
@@ -317,7 +317,24 @@ curl http://localhost:8080/api/image/Turdus%20merula -o blackbird.jpg
 
 # Audio clip for a species
 curl http://localhost:8080/api/audio/Turdus_merula.wav -o blackbird.wav
+
+# Species list (optional search query)
+curl http://localhost:8080/api/species?q=robin
+
+# Chart data: hourly detection counts
+curl http://localhost:8080/api/charts/timeline?days=7
+
+# Chart data: top species by detection count
+curl http://localhost:8080/api/charts/species?days=30&limit=15
+
+# Chart data: activity heatmap (day-of-week x hour)
+curl http://localhost:8080/api/charts/heatmap?days=30
+
+# Chart data: daily detection count and species count
+curl http://localhost:8080/api/charts/trend?days=30
 ```
+
+All chart endpoints return JSON arrays and are cached server-side for 60 seconds with `Cache-Control: max-age=60` headers.
 
 ### Common debugging workflows
 
