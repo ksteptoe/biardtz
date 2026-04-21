@@ -1,0 +1,149 @@
+{# Health panel drawer — loaded via hx-get="/partials/health" #}
+<div class="space-y-4">
+    <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-bold text-stone-800">System Health</h2>
+        <button onclick="toggleHealthPanel()"
+                class="text-stone-400 hover:text-stone-600 text-xl leading-none">&times;</button>
+    </div>
+
+    {# ── Pipeline ── #}
+    <div class="bg-white rounded-lg shadow-sm border border-stone-200 p-3">
+        <div class="flex items-center gap-2 mb-2">
+            {% set pc = {'ok':'emerald','warn':'amber','fail':'red'}[tier1.pipeline.status] or 'stone' %}
+            <div class="w-2.5 h-2.5 rounded-full bg-{{ pc }}-400"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Pipeline</h3>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">
+            <div>Status</div>
+            <div class="text-right font-medium">{{ tier1.pipeline.detail }}</div>
+            {% if tier1.pipeline.pid %}
+            <div>PID</div>
+            <div class="text-right font-mono">{{ tier1.pipeline.pid }}</div>
+            {% endif %}
+            {% if tier1.pipeline.heartbeat_age is not none %}
+            <div>Heartbeat</div>
+            <div class="text-right">{{ tier1.pipeline.heartbeat_age }}s ago</div>
+            {% endif %}
+            <div>Audio</div>
+            <div class="text-right">{{ tier1.pipeline.audio }}</div>
+            <div>Detections</div>
+            <div class="text-right font-mono">{{ tier1.pipeline.detections }}</div>
+            <div>Species</div>
+            <div class="text-right font-mono">{{ tier1.pipeline.species }}</div>
+            {% if tier1.pipeline.uptime_seconds %}
+            <div>Session uptime</div>
+            <div class="text-right">{{ (tier1.pipeline.uptime_seconds // 3600) }}h {{ ((tier1.pipeline.uptime_seconds % 3600) // 60) }}m</div>
+            {% endif %}
+        </div>
+        {% if tier1.pipeline.errors %}
+        <div class="mt-2 border-t border-stone-100 pt-2">
+            <div class="text-xs font-medium text-red-600 mb-1">Recent errors</div>
+            {% for err in tier1.pipeline.errors[-3:] %}
+            <div class="text-xs text-red-500 truncate" title="{{ err }}">{{ err }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    {# ── Hardware — skeleton until Tier 2 loads ── #}
+    <div id="health-hardware" class="bg-white rounded-lg shadow-sm border border-stone-200 p-3"
+         hx-get="/api/health/tier2/hardware" hx-trigger="load" hx-swap="innerHTML">
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-stone-300 animate-pulse"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Hardware</h3>
+        </div>
+        <div class="space-y-2">
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-3/4"></div>
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-1/2"></div>
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-2/3"></div>
+        </div>
+    </div>
+
+    {# ── Database ── #}
+    <div class="bg-white rounded-lg shadow-sm border border-stone-200 p-3">
+        <div class="flex items-center gap-2 mb-2">
+            {% set dc = {'ok':'emerald','warn':'amber','fail':'red'}[tier1.database.status] or 'stone' %}
+            <div class="w-2.5 h-2.5 rounded-full bg-{{ dc }}-400"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Database</h3>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">
+            <div>File size</div>
+            <div class="text-right font-mono">{{ tier1.database.size_mb }} MB</div>
+            {% if tier1.database.wal_mb is defined %}
+            <div>WAL size</div>
+            <div class="text-right font-mono">{{ tier1.database.wal_mb }} MB</div>
+            {% endif %}
+        </div>
+        {# Tier 2 DB integrity loads async #}
+        <div id="health-db-detail" class="mt-2 border-t border-stone-100 pt-2"
+             hx-get="/api/health/tier2/db" hx-trigger="load" hx-swap="innerHTML">
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-1/2"></div>
+        </div>
+    </div>
+
+    {# ── Software ── #}
+    <div class="bg-white rounded-lg shadow-sm border border-stone-200 p-3">
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Software</h3>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">
+            <div>biardtz</div>
+            <div class="text-right font-mono">v{{ tier1.software.biardtz_version }}</div>
+            <div>Python</div>
+            <div class="text-right font-mono">{{ tier1.software.python_version }}</div>
+        </div>
+        {# Tier 2 BirdNET loads async #}
+        <div id="health-birdnet" class="mt-2 border-t border-stone-100 pt-2"
+             hx-get="/api/health/tier2/birdnet" hx-trigger="load" hx-swap="innerHTML">
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-2/3"></div>
+        </div>
+    </div>
+
+    {# ── Network — skeleton until Tier 2 ── #}
+    <div id="health-network" class="bg-white rounded-lg shadow-sm border border-stone-200 p-3"
+         hx-get="/api/health/tier2/network" hx-trigger="load" hx-swap="innerHTML">
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-stone-300 animate-pulse"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Network</h3>
+        </div>
+        <div class="space-y-2">
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-2/3"></div>
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-1/2"></div>
+        </div>
+    </div>
+
+    {# ── Uptime — skeleton until Tier 2 ── #}
+    <div id="health-uptime" class="bg-white rounded-lg shadow-sm border border-stone-200 p-3"
+         hx-get="/api/health/tier2/uptime" hx-trigger="load" hx-swap="innerHTML">
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-stone-300 animate-pulse"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Uptime</h3>
+        </div>
+        <div class="space-y-2">
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-1/2"></div>
+        </div>
+    </div>
+
+    {# ── Config ── #}
+    <div class="bg-white rounded-lg shadow-sm border border-stone-200 p-3">
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Config</h3>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">
+            <div>Location</div>
+            <div class="text-right">{{ tier1.config.location }}</div>
+            <div>Coordinates</div>
+            <div class="text-right font-mono">{{ tier1.config.latitude }}, {{ tier1.config.longitude }}</div>
+            <div>Confidence</div>
+            <div class="text-right font-mono">{{ (tier1.config.confidence_threshold * 100)|int }}%</div>
+            <div>Sample rate</div>
+            <div class="text-right font-mono">{{ tier1.config.sample_rate }} Hz</div>
+            <div>Channels</div>
+            <div class="text-right font-mono">{{ tier1.config.channels }}</div>
+            <div>Timezone</div>
+            <div class="text-right">{{ tier1.config.timezone }}</div>
+        </div>
+    </div>
+</div>

@@ -20,9 +20,9 @@
                 <p class="text-emerald-200 text-sm">{{ config.location_name }}</p>
             </a>
             <div class="flex items-center gap-3">
-                <div id="conn-status"
-                     class="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)] transition-colors duration-300"
-                     title="Connected"></div>
+                <button id="conn-status" onclick="toggleHealthPanel()"
+                     class="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)] transition-colors duration-300 cursor-pointer hover:scale-125"
+                     title="Click for system health"></button>
                 <div class="text-emerald-200 text-sm text-right">
                     <div>Bird Detection</div>
                     <div>Live Dashboard</div>
@@ -30,25 +30,58 @@
             </div>
         </div>
     </header>
+    {# Health panel drawer #}
+    <div id="health-drawer"
+         class="fixed top-0 right-0 h-full w-full sm:w-96 bg-stone-50 shadow-xl z-50 transform translate-x-full transition-transform duration-300 overflow-y-auto">
+        <div id="health-content" class="p-4"></div>
+    </div>
+    <div id="health-backdrop"
+         class="fixed inset-0 bg-black/20 z-40 hidden"
+         onclick="toggleHealthPanel()"></div>
+
     <main class="max-w-5xl mx-auto px-4 py-6">
         {% block content %}{% endblock %}
     </main>
     <script>
     (function() {
         var dot = document.getElementById('conn-status');
-        function setOk() {
-            dot.className = 'w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)] transition-colors duration-300';
-            dot.title = 'Connected';
+        var base = 'w-3 h-3 rounded-full transition-colors duration-300 cursor-pointer hover:scale-125';
+        var colors = {
+            green:  base + ' bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]',
+            yellow: base + ' bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.7)]',
+            red:    base + ' bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]'
+        };
+        function setDot(color) {
+            dot.className = colors[color] || colors.green;
+            dot.title = 'Click for system health';
         }
-        function setErr() {
-            dot.className = 'w-3 h-3 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)] transition-colors duration-300';
-            dot.title = 'Disconnected';
-        }
+        // HTMX connection status
         document.body.addEventListener('htmx:afterRequest', function(evt) {
-            if (evt.detail.successful) { setOk(); } else { setErr(); }
+            if (!evt.detail.successful) setDot('red');
         });
-        document.body.addEventListener('htmx:sendError', function() { setErr(); });
+        document.body.addEventListener('htmx:sendError', function() { setDot('red'); });
+
+        // Periodic health poll every 30s
+        setInterval(function() {
+            fetch('/api/health/quick').then(function(r) { return r.json(); })
+                .then(function(d) { setDot(d.color); })
+                .catch(function() { setDot('red'); });
+        }, 30000);
     })();
+
+    function toggleHealthPanel() {
+        var drawer = document.getElementById('health-drawer');
+        var backdrop = document.getElementById('health-backdrop');
+        var open = !drawer.classList.contains('translate-x-full');
+        if (open) {
+            drawer.classList.add('translate-x-full');
+            backdrop.classList.add('hidden');
+        } else {
+            drawer.classList.remove('translate-x-full');
+            backdrop.classList.remove('hidden');
+            htmx.ajax('GET', '/partials/health', {target: '#health-content', swap: 'innerHTML'});
+        }
+    }
     </script>
     {% block scripts %}{% endblock %}
 </body>

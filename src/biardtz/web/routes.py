@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from . import db, image_cache
+from . import db, health_checks, image_cache
 
 # Simple TTL cache for chart data (avoids repeated expensive queries)
 _cache: dict[str, tuple[float, list]] = {}
@@ -278,3 +278,168 @@ def register(app: FastAPI) -> None:
         if fallback.exists():
             return FileResponse(fallback, media_type="image/svg+xml")
         return HTMLResponse("", status_code=404)
+
+    # ── Health panel endpoints ──────────────────────────────────────────
+
+    @app.get("/partials/health", response_class=HTMLResponse)
+    async def partial_health(request: Request):
+        """Tier 1 health panel — instant data, skeletons for Tier 2."""
+        config = request.app.state.config
+        tier1 = health_checks.tier1_checks(config)
+        return request.app.state.templates.TemplateResponse(
+            request,
+            "_health_panel.html",
+            {"tier1": tier1},
+        )
+
+    @app.get("/api/health")
+    async def api_health(request: Request):
+        """Full health check — Tier 1 + Tier 2 combined."""
+        import asyncio
+        config = request.app.state.config
+        tier1 = health_checks.tier1_checks(config)
+        loop = asyncio.get_event_loop()
+        tier2 = await loop.run_in_executor(None, health_checks.tier2_checks, config)
+        return JSONResponse({**tier1, **tier2})
+
+    @app.get("/api/health/quick")
+    async def api_health_quick():
+        """Fast dot colour: returns {color: 'green'|'yellow'|'red'}."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        color = await loop.run_in_executor(None, health_checks.quick_status)
+        return JSONResponse({"color": color})
+
+    # ── Tier 2 fragment endpoints (loaded async by the panel) ──────────
+
+    @app.get("/api/health/tier2/hardware", response_class=HTMLResponse)
+    async def health_tier2_hardware(request: Request):
+        import asyncio
+        loop = asyncio.get_event_loop()
+        hw = await loop.run_in_executor(None, lambda: {
+            "cpu_temp": health_checks.check_cpu_temp(),
+            "memory": health_checks.check_memory(),
+            "disk": health_checks.check_disk(),
+            "microphone": health_checks.check_microphone(),
+        })
+        # Build inline HTML fragment
+        lines = []
+        lines.append('<div class="flex items-center gap-2 mb-2">')
+        # Overall status: worst of sub-checks
+        statuses = [v["status"] for v in hw.values()]
+        worst = "fail" if "fail" in statuses else ("warn" if "warn" in statuses else "ok")
+        color = {"ok": "emerald", "warn": "amber", "fail": "red"}[worst]
+        lines.append(f'<div class="w-2.5 h-2.5 rounded-full bg-{color}-400"></div>')
+        lines.append('<h3 class="font-semibold text-sm text-stone-700">Hardware</h3>')
+        lines.append('</div>')
+        lines.append('<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">')
+
+        for key in ("cpu_temp", "memory", "disk", "microphone"):
+            check = hw[key]
+            lines.append(f'<div>{check["label"]}</div>')
+            sc = {"ok": "emerald", "warn": "amber", "fail": "red"}.get(check["status"], "stone")
+            lines.append(f'<div class="text-right text-{sc}-600 font-medium">{check["detail"]}</div>')
+
+        # Memory progress bar
+        mem = hw["memory"]
+        if "percent" in mem:
+            mc = {"ok": "emerald", "warn": "amber", "fail": "red"}[mem["status"]]
+            lines.append('<div class="col-span-2 mt-1">')
+            lines.append('<div class="w-full bg-stone-100 rounded-full h-1.5">')
+            lines.append(f'<div class="bg-{mc}-400 h-1.5 rounded-full" style="width:{mem["percent"]}%"></div>')
+            lines.append('</div></div>')
+
+        # Disk progress bar
+        disk = hw["disk"]
+        if "percent" in disk:
+            dkc = {"ok": "emerald", "warn": "amber", "fail": "red"}[disk["status"]]
+            lines.append('<div class="col-span-2 mt-1">')
+            lines.append('<div class="w-full bg-stone-100 rounded-full h-1.5">')
+            lines.append(f'<div class="bg-{dkc}-400 h-1.5 rounded-full" style="width:{disk["percent"]}%"></div>')
+            lines.append('</div></div>')
+
+        lines.append('</div>')
+        return HTMLResponse("\n".join(lines))
+
+    @app.get("/api/health/tier2/db", response_class=HTMLResponse)
+    async def health_tier2_db(request: Request):
+        import asyncio
+        config = request.app.state.config
+        loop = asyncio.get_event_loop()
+        check = await loop.run_in_executor(None, health_checks.check_db_integrity, config.db_path)
+        sc = {"ok": "emerald", "warn": "amber", "fail": "red"}.get(check["status"], "stone")
+        lines = ['<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">']
+        lines.append('<div>Integrity</div>')
+        lines.append(f'<div class="text-right text-{sc}-600 font-medium">{check["detail"]}</div>')
+        if "total_detections" in check:
+            lines.append('<div>Total detections</div>')
+            lines.append(f'<div class="text-right font-mono">{check["total_detections"]:,}</div>')
+        if "total_species" in check:
+            lines.append('<div>Total species</div>')
+            lines.append(f'<div class="text-right font-mono">{check["total_species"]}</div>')
+        if check.get("audio_clips"):
+            lines.append('<div>Audio clips</div>')
+            lines.append(f'<div class="text-right font-mono">{check["audio_clips"]}</div>')
+        lines.append('</div>')
+        return HTMLResponse("\n".join(lines))
+
+    @app.get("/api/health/tier2/birdnet", response_class=HTMLResponse)
+    async def health_tier2_birdnet(request: Request):
+        config = request.app.state.config
+        check = health_checks.check_birdnet(config)
+        sc = {"ok": "emerald", "warn": "amber", "fail": "red"}.get(check["status"], "stone")
+        lines = ['<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">']
+        lines.append('<div>BirdNET</div>')
+        lines.append(f'<div class="text-right text-{sc}-600 font-medium">{check["detail"]}</div>')
+        if check.get("path"):
+            lines.append('<div>Path</div>')
+            path = check["path"]
+            lines.append(
+                f'<div class="text-right font-mono text-[10px] truncate"'
+                f' title="{path}">{path}</div>'
+            )
+        lines.append('</div>')
+        return HTMLResponse("\n".join(lines))
+
+    @app.get("/api/health/tier2/network", response_class=HTMLResponse)
+    async def health_tier2_network(request: Request):
+        import asyncio
+        loop = asyncio.get_event_loop()
+        check = await loop.run_in_executor(None, health_checks.check_network)
+        svc = await loop.run_in_executor(None, health_checks.check_systemd)
+        lines = []
+        lines.append('<div class="flex items-center gap-2 mb-2">')
+        sc = {"ok": "emerald", "warn": "amber", "fail": "red"}.get(check["status"], "stone")
+        lines.append(f'<div class="w-2.5 h-2.5 rounded-full bg-{sc}-400"></div>')
+        lines.append('<h3 class="font-semibold text-sm text-stone-700">Network</h3>')
+        lines.append('</div>')
+        lines.append('<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">')
+        if check.get("ssid"):
+            lines.append(f'<div>WiFi</div><div class="text-right">{check["ssid"]}</div>')
+        for ip in check.get("ips", [])[:3]:
+            label = "Tailscale" if ip.startswith("100.") else "IP"
+            lines.append(f'<div>{label}</div><div class="text-right font-mono">{ip}</div>')
+        if check.get("tailscale") and not any(ip.startswith("100.") for ip in check.get("ips", [])):
+            lines.append(f'<div>Tailscale</div><div class="text-right font-mono">{check["tailscale"]}</div>')
+        # Service info
+        svc_sc = {"ok": "emerald", "warn": "amber", "fail": "red"}.get(svc["status"], "stone")
+        lines.append(f'<div>Service</div><div class="text-right text-{svc_sc}-600 font-medium">{svc["detail"]}</div>')
+        if svc.get("since"):
+            lines.append(f'<div>Since</div><div class="text-right text-[10px]">{svc["since"]}</div>')
+        lines.append('</div>')
+        return HTMLResponse("\n".join(lines))
+
+    @app.get("/api/health/tier2/uptime", response_class=HTMLResponse)
+    async def health_tier2_uptime(request: Request):
+        import asyncio
+        loop = asyncio.get_event_loop()
+        check = await loop.run_in_executor(None, health_checks.check_system_uptime)
+        lines = []
+        lines.append('<div class="flex items-center gap-2 mb-2">')
+        lines.append('<div class="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>')
+        lines.append('<h3 class="font-semibold text-sm text-stone-700">Uptime</h3>')
+        lines.append('</div>')
+        lines.append('<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">')
+        lines.append(f'<div>System</div><div class="text-right font-mono">{check["detail"]}</div>')
+        lines.append('</div>')
+        return HTMLResponse("\n".join(lines))
