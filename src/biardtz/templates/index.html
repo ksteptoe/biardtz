@@ -227,6 +227,7 @@ function buildBannerConfig(type, data) {
                     label: 'Per hour',
                     data: counts,
                     backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                    hoverBackgroundColor: 'rgba(16, 185, 129, 0.9)',
                     borderColor: 'rgba(16, 185, 129, 1)',
                     borderWidth: 1,
                     borderRadius: 4,
@@ -236,12 +237,13 @@ function buildBannerConfig(type, data) {
                     type: 'line',
                     label: 'Cumulative',
                     data: cumulative,
-                    borderColor: 'rgba(16, 185, 129, 0.9)',
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                    borderWidth: 2,
+                    borderColor: 'rgba(16, 185, 129, 0.4)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                    hoverBorderColor: 'rgba(16, 185, 129, 0.6)',
+                    borderWidth: 1.5,
                     pointRadius: 0,
-                    pointHoverRadius: 5,
-                    pointHoverBackgroundColor: 'rgba(16, 185, 129, 1)',
+                    pointHoverRadius: 3,
+                    pointHoverBackgroundColor: 'rgba(16, 185, 129, 0.6)',
                     fill: true,
                     tension: 0.3,
                     yAxisID: 'y2',
@@ -280,8 +282,12 @@ function buildBannerConfig(type, data) {
                         title: { display: false }
                     }
                 },
+                onHover: function(evt, els) {
+                    var canvas = evt.native ? evt.native.target : evt.chart.canvas;
+                    var bar = els.find(function(e) { return e.datasetIndex === 0; });
+                    canvas.style.cursor = bar ? 'pointer' : 'default';
+                },
                 onClick: function(evt, els) {
-                    /* Only respond to bar clicks (datasetIndex 0), ignore cumulative line */
                     var bar = els.find(function(e) { return e.datasetIndex === 0; });
                     if (bar) drillDown(bar.index);
                 }
