@@ -140,15 +140,25 @@ def _days_ago_utc(days: int, local_tz: ZoneInfo | None = None) -> str:
     return start_of_day.astimezone(timezone.utc).isoformat()
 
 
+def _utc_offset_modifier(local_tz: ZoneInfo | None) -> str:
+    """Return an SQLite datetime modifier like '+1 hours' for the current UTC offset."""
+    tz = local_tz or ZoneInfo("UTC")
+    offset_sec = int(datetime.now(tz).utcoffset().total_seconds())
+    hours = offset_sec // 3600
+    sign = "+" if hours >= 0 else ""
+    return f"{sign}{hours} hours"
+
+
 def detection_timeline(
     conn: sqlite3.Connection,
     days: int = 7,
     local_tz: ZoneInfo | None = None,
 ) -> list[dict]:
-    """Hourly detection counts for the last *days* days."""
+    """Hourly detection counts for the last *days* days, in local time."""
     since = _days_ago_utc(days, local_tz)
+    modifier = _utc_offset_modifier(local_tz)
     rows = conn.execute(
-        "SELECT strftime('%Y-%m-%dT%H:00:00', timestamp) AS hour, "
+        f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
         "COUNT(*) AS count "
         "FROM detections WHERE timestamp >= ? "
         "GROUP BY hour ORDER BY hour",
