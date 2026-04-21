@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
