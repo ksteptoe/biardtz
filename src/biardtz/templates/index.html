@@ -280,7 +280,11 @@ function buildBannerConfig(type, data) {
                         title: { display: false }
                     }
                 },
-                onClick: function(evt, els) { if (els.length) drillDown(els[0].index); }
+                onClick: function(evt, els) {
+                    /* Only respond to bar clicks (datasetIndex 0), ignore cumulative line */
+                    var bar = els.find(function(e) { return e.datasetIndex === 0; });
+                    if (bar) drillDown(bar.index);
+                }
             }
         };
     }
