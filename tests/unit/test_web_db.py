@@ -1,12 +1,20 @@
-"""Tests for biardtz.web.db — wildcard/glob search support."""
+"""Tests for biardtz.web.db — wildcard/glob search and timeline."""
 
 from __future__ import annotations
 
 import sqlite3
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from biardtz.web.db import _GLOB_CHARS, recent_detections, species_list
+from biardtz.web.db import (
+    _GLOB_CHARS,
+    _utc_offset_modifier,
+    detection_timeline,
+    recent_detections,
+    species_list,
+)
 
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS detections (
@@ -206,3 +214,62 @@ class TestSpeciesListGlobSearch:
         results = species_list(db_conn, q="[BG]*")
         names = [r["common_name"] for r in results]
         assert names == sorted(names)
+
+
+# ---------------------------------------------------------------------------
+# _utc_offset_modifier
+# ---------------------------------------------------------------------------
+
+
+class TestUtcOffsetModifier:
+    """Verify the SQLite modifier string for timezone offsets."""
+
+    def test_utc_returns_zero(self):
+        result = _utc_offset_modifier(ZoneInfo("UTC"))
+        assert result == "+0 hours"
+
+    def test_positive_offset(self):
+        # Europe/London is UTC+1 during BST
+        result = _utc_offset_modifier(ZoneInfo("Europe/London"))
+        assert result in ("+0 hours", "+1 hours")  # depends on DST
+
+    def test_negative_offset(self):
+        result = _utc_offset_modifier(ZoneInfo("America/New_York"))
+        assert result in ("-5 hours", "-4 hours")  # depends on DST
+
+    def test_none_defaults_to_utc(self):
+        assert _utc_offset_modifier(None) == "+0 hours"
+
+
+# ---------------------------------------------------------------------------
+# detection_timeline — local hour grouping
+# ---------------------------------------------------------------------------
+
+
+class TestDetectionTimeline:
+    """Verify timeline groups detections by local hour, not UTC."""
+
+    def test_timeline_returns_hourly_counts(self, db_conn):
+        # All sample rows are in the 08:xx UTC hour
+        results = detection_timeline(db_conn, days=7, local_tz=ZoneInfo("UTC"))
+        assert len(results) == 1
+        assert results[0]["hour"] == "2026-04-20T08:00:00"
+        assert results[0]["count"] == 7
+
+    def test_timeline_shifts_hour_for_positive_offset(self, db_conn):
+        # UTC+2: 08:xx UTC becomes 10:xx local
+        tz = ZoneInfo("Europe/Helsinki")  # UTC+2 in winter, UTC+3 in summer
+        results = detection_timeline(db_conn, days=7, local_tz=tz)
+        assert len(results) == 1
+        hour = results[0]["hour"]
+        # Should be shifted forward from 08:00 UTC
+        assert hour > "2026-04-20T08:00:00"
+
+    def test_timeline_shifts_hour_for_negative_offset(self, db_conn):
+        # UTC-5: 08:xx UTC becomes 03:xx local
+        tz = ZoneInfo("America/New_York")
+        results = detection_timeline(db_conn, days=7, local_tz=tz)
+        assert len(results) == 1
+        hour = results[0]["hour"]
+        # Should be shifted back from 08:00 UTC
+        assert hour < "2026-04-20T08:00:00"
