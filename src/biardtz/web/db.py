@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+_GLOB_CHARS = re.compile(r"[*?\[\]]")
 
 
 def get_connection(db_path: Path) -> sqlite3.Connection:
@@ -60,8 +63,12 @@ def recent_detections(
         conditions.append("timestamp < ?")
         params.append(date_to)
     if search:
-        conditions.append("common_name LIKE ?")
-        params.append(f"%{search}%")
+        if _GLOB_CHARS.search(search):
+            conditions.append("common_name GLOB ?")
+            params.append(search)
+        else:
+            conditions.append("common_name LIKE ?")
+            params.append(f"%{search}%")
 
     where = ""
     if conditions:
@@ -214,11 +221,18 @@ def species_audio_map(conn: sqlite3.Connection) -> dict[str, str]:
 def species_list(conn: sqlite3.Connection, q: str | None = None) -> list[dict]:
     """Distinct species, optionally filtered by prefix/substring."""
     if q:
-        rows = conn.execute(
-            "SELECT DISTINCT common_name, sci_name FROM detections "
-            "WHERE common_name LIKE ? ORDER BY common_name",
-            (f"%{q}%",),
-        ).fetchall()
+        if _GLOB_CHARS.search(q):
+            rows = conn.execute(
+                "SELECT DISTINCT common_name, sci_name FROM detections "
+                "WHERE common_name GLOB ? ORDER BY common_name",
+                (q,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT DISTINCT common_name, sci_name FROM detections "
+                "WHERE common_name LIKE ? ORDER BY common_name",
+                (f"%{q}%",),
+            ).fetchall()
     else:
         rows = conn.execute(
             "SELECT DISTINCT common_name, sci_name FROM detections "

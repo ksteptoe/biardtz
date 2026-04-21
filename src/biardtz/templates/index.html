@@ -262,9 +262,9 @@ function drillDown(index) {
     var title = '';
 
     if (bannerType === 'today') {
-        /* item.hour is like "2026-04-19T07:00:00" */
+        /* item.hour is like "2026-04-19T07:00:00" (UTC from SQLite, no Z suffix) */
         var hourStr = item.hour;
-        var d = new Date(hourStr);
+        var d = new Date(hourStr + 'Z');          /* treat as UTC */
         var next = new Date(d.getTime() + 3600000);
         params += '&date_from=' + encodeURIComponent(hourStr);
         params += '&date_to=' + encodeURIComponent(next.toISOString().slice(0, 19));
