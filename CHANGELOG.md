@@ -1,5 +1,42 @@
 # Changelog
 
+## Version 1.1.11
+
+- Today banner chart bars visually dominant with pointer cursor on hover
+
+## Version 1.1.10
+
+- Hover tooltip on Today chart shows nearest element (bar or cumulative line)
+
+## Version 1.1.9
+
+- Cumulative detection line overlaid on Today chart with secondary Y axis
+
+## Version 1.1.8
+
+- Today chart hours padded from 00:00 to current hour (no gaps in the axis)
+
+## Version 1.1.7
+
+- Today banner chart shows midnight-to-now instead of rolling 24 hours
+
+## Version 1.1.6
+
+- Today chart axis and tooltip refinements
+
+## Version 1.1.5
+
+- Bug fixes and minor improvements
+
+## Version 1.1.4
+
+- Health panel drawer: click the green dot in the header to view system health
+- Two-tier loading: instant data (pipeline status, DB size, versions, config) plus async checks (CPU temp, memory, disk, microphone, network/WiFi/Tailscale, systemd service, BirdNET model, DB integrity)
+- Health dot polls every 30 seconds; colour changes: green = ok, yellow = degraded, red = down
+- New module: `web/health_checks.py` with 14 probe functions
+- New template: `_health_panel.html` slide-out drawer
+- New API endpoints: `/api/health`, `/api/health/quick`, `/api/health/tier2/*`
+
 ## Version 0.2.19
 
 - Server-side 60-second TTL cache for all chart API responses

@@ -16,6 +16,7 @@ biardtz is a bird identification system that runs on a Raspberry Pi. It listens 
 - **Species filtering** --- uses your location and time of year to improve accuracy
 - **Direction of arrival** --- estimates which compass direction the bird is calling from
 - **Audio clip playback** --- saves the best audio sample per species and plays it from the web dashboard
+- **Health panel** --- slide-out drawer with live system health, accessible from the header dot
 - **Web dashboard** --- mobile-friendly, auto-refreshing, with bird photos
 - **Remote access** --- view detections from anywhere via Tailscale VPN
 - **Auto-start** --- runs as a systemd service, survives reboots and SSH disconnects
@@ -70,6 +71,7 @@ All configuration flows through a single `Config` dataclass. The async design me
 | `logger.py` | aiosqlite writer, WAL mode, auto-creates schema |
 | `dashboard.py` | Rich live terminal display |
 | `web.py` | Starlette web application with REST API |
+| `web/health_checks.py` | 14 health probe functions (two-tier: instant + async) |
 | `main.py` | Async orchestrator wiring all components together |
 | `health.py` | Health monitor with heartbeat file and error tracking |
 | `geocode.py` | Location name to lat/lon/timezone resolution |
@@ -176,9 +178,10 @@ Works from anywhere --- home, work, or mobile data.
 
 ### What you see
 
+- **Health dot** --- a coloured dot in the header bar shows system health at a glance (green = ok, yellow = degraded, red = down). Click it to open the health panel drawer (see below)
 - **Summary cards** --- today's detections, today's species, all-time species count
 - **Drill-down charts** --- click any summary card to reveal a bar chart; click a bar in the chart to see individual detection cards for that slice
-  - **Today** --- click the card to see hourly counts, then click an hour bar to list all detections for that hour
+  - **Today** --- click the card to see hourly counts from midnight to the current hour, with a cumulative line overlay on a secondary Y axis. Hover shows the nearest element tooltip. Click an hour bar to list all detections for that hour
   - **Species Today** --- click the card to see species counts, then click a species bar to list all detections for that species today
   - **All Time** --- click the card to see species counts, then click a species bar to list all-time detections for that species
   - A close button (X) dismisses the drill-down results; switching cards also clears them
@@ -192,6 +195,28 @@ Bird photos are fetched from Wikipedia/Wikidata and cached on the SSD.
 ### Audio clips
 
 biardtz saves the best audio sample per species as a WAV file (16-bit PCM, mono, 16 kHz, ~288 KB per 3-second clip). When a detection has higher confidence than the existing clip for that species, the clip is automatically replaced. Clips are stored in `/mnt/ssd/audio_clips/` (configurable via `audio_clip_dir` in the Config dataclass) and tracked in an `audio_clips` SQLite table. Storage is bounded --- even with hundreds of species, total usage stays under ~100 MB.
+
+### Health panel
+
+Click the coloured dot in the header bar to open a slide-out health panel. The panel uses two-tier loading for a responsive experience:
+
+**Tier 1 --- instant data (no loading delay):**
+
+- Pipeline status (PID, heartbeat age, audio stream, detection/species counts, session uptime, recent errors)
+- Database file size and WAL size
+- Software versions (biardtz and Python)
+- Config summary (location, coordinates, confidence threshold, sample rate, channels, timezone)
+
+**Tier 2 --- async checks (load in the background with skeleton placeholders):**
+
+- CPU temperature, memory usage, disk usage
+- Microphone detection (checks for the ReSpeaker via `arecord`)
+- Network info (WiFi SSID, IP addresses, Tailscale status)
+- Systemd service status and uptime
+- BirdNET model validation (model file, species label count)
+- Database integrity check (PRAGMA quick_check, row counts, audio clip count)
+
+The header dot polls every 30 seconds and changes colour automatically: green when everything is healthy, yellow when degraded (e.g. stale heartbeat), red when the pipeline is down.
 
 ### Standalone mode
 
@@ -322,6 +347,12 @@ curl http://localhost:8080/api/image/Turdus%20merula -o blackbird.jpg
 
 # Audio clip for a species
 curl http://localhost:8080/api/audio/Turdus_merula.wav -o blackbird.wav
+
+# Health status (full Tier 1 + Tier 2)
+curl http://localhost:8080/api/health
+
+# Quick health dot colour (green/yellow/red)
+curl http://localhost:8080/api/health/quick
 
 # Species list (optional search query)
 curl http://localhost:8080/api/species?q=robin

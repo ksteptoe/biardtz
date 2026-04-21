@@ -15,6 +15,7 @@ A passive, always-on bird identification station that listens via a ReSpeaker US
 - Web dashboard with detection filtering, search, species leaderboard, and date range selection
 - Chart.js visualisations: detection timeline, daily trend, species frequency, and activity heatmap
 - Two-level drill-down: click a stat banner for a bar chart, click a bar to see individual detection cards
+- Health panel drawer: click the header dot for live system health (CPU, memory, disk, network, service status)
 - Mobile-first responsive layout with tab navigation (Live/Charts/Species) and two-column desktop view
 - Server-side chart caching and loading skeletons for fast page loads
 - Rich terminal dashboard for headless monitoring
@@ -114,8 +115,8 @@ src/biardtz/
     health.py           Pipeline health monitor and heartbeat writer
     geocode.py          Location name to lat/lon/timezone resolution
     doa.py              Direction-of-arrival estimation for mic array
-    web/                FastAPI web dashboard (routes, DB queries, image cache)
-    templates/          Jinja2 HTML templates for the web UI
+    web/                FastAPI web dashboard (routes, DB queries, image cache, health checks)
+    templates/          Jinja2 HTML templates for the web UI (including health panel drawer)
     static/             CSS, JS, and static assets
 docs/
     build_log.md        Comprehensive build log — hardware, architecture, setup guide

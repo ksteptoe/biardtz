@@ -68,7 +68,9 @@ journalctl -u biardtz -f              # Follow live logs
 
 Detection rows include a play button for species that have a saved audio clip. Clicking play stops any other clip that is currently playing.
 
-The three summary banners (Today, Species Today, All Time) support two-level drill-down: click a banner to see a bar chart, then click any bar to see individual detection cards for that slice. A close button (X) dismisses the drill-down.
+The three summary banners (Today, Species Today, All Time) support two-level drill-down: click a banner to see a bar chart, then click any bar to see individual detection cards for that slice. The Today chart shows midnight-to-now with a cumulative line overlay. A close button (X) dismisses the drill-down.
+
+The coloured dot in the header shows system health (green/yellow/red). Click it to open a slide-out health panel with pipeline status, hardware metrics, network info, and config details.
 
 ## Monitoring & debugging
 
@@ -132,6 +134,8 @@ All endpoints are available when the web dashboard is running (default port 8080
 | `GET /api/charts/trend` | `days` (default 30) | Daily detection and species counts |
 | `GET /api/image/{sci_name}` | | Bird photo (cached from Wikipedia) |
 | `GET /api/audio/{filename}` | | Audio clip WAV file |
+| `GET /api/health` | | Full health check (Tier 1 + Tier 2 combined) |
+| `GET /api/health/quick` | | Health dot colour: `green`, `yellow`, or `red` |
 
 Chart endpoints are cached server-side (60s TTL) with `Cache-Control: max-age=60`.
 

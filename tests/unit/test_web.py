@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -526,6 +526,14 @@ class TestCreateApp:
         assert "/api/charts/trend" in route_paths
         assert "/api/species" in route_paths
         assert "/api/audio/{filename}" in route_paths
+        assert "/partials/health" in route_paths
+        assert "/api/health" in route_paths
+        assert "/api/health/quick" in route_paths
+        assert "/api/health/tier2/db" in route_paths
+        assert "/api/health/tier2/birdnet" in route_paths
+        assert "/api/health/tier2/hardware" in route_paths
+        assert "/api/health/tier2/network" in route_paths
+        assert "/api/health/tier2/uptime" in route_paths
 
     def test_app_title(self, tmp_path):
         db_path = tmp_path / "test.db"
@@ -1417,7 +1425,6 @@ class TestImageCache:
 
     def test_fetch_image_url_extracts_url(self):
         """_fetch_image_url parses Wikidata API response to get image URL."""
-        from unittest.mock import MagicMock
 
         async def _run():
             search_resp = MagicMock()
@@ -1447,7 +1454,6 @@ class TestImageCache:
 
     def test_fetch_image_url_returns_none_when_no_results(self):
         """_fetch_image_url returns None when Wikidata search finds nothing."""
-        from unittest.mock import MagicMock
 
         async def _run():
             search_resp = MagicMock()
@@ -1466,7 +1472,6 @@ class TestImageCache:
 
     def test_fetch_image_url_returns_none_when_no_p18_claim(self):
         """_fetch_image_url returns None when entity has no P18 (image) claim."""
-        from unittest.mock import MagicMock
 
         async def _run():
             search_resp = MagicMock()
@@ -1486,3 +1491,218 @@ class TestImageCache:
 
         result = asyncio.run(_run())
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Health route tests
+# ---------------------------------------------------------------------------
+
+
+def _mock_health_probes():
+    """Return a tuple of patch objects that mock all health check probes to
+    avoid subprocess calls, /proc reads, and os.statvfs on the test machine."""
+    tier1_result = {
+        "pipeline": {
+            "status": "fail", "label": "Pipeline", "detail": "No heartbeat",
+            "pid": None, "detections": 0, "species": 0,
+            "heartbeat_age": None, "audio": "unknown", "errors": [],
+        },
+        "software": {
+            "status": "ok", "label": "Software",
+            "biardtz_version": "1.0.0", "python_version": "3.12.0",
+        },
+        "database": {
+            "status": "ok", "label": "Database", "detail": "0.1 MB",
+            "size_mb": 0.1, "wal_mb": 0, "path": "/tmp/test.db",
+        },
+        "config": {
+            "status": "ok", "label": "Config", "location": "London",
+            "latitude": 51.5, "longitude": -0.1,
+            "confidence_threshold": 0.25, "sample_rate": 48000,
+            "channels": 1, "timezone": "Europe/London",
+        },
+    }
+    tier2_result = {
+        "hardware": {
+            "cpu_temp": {
+                "status": "ok", "label": "CPU Temp",
+                "detail": "45.0\u00b0C", "temp_c": 45.0,
+            },
+            "memory": {
+                "status": "ok", "label": "Memory", "detail": "50% used",
+                "total_mb": 7812, "used_mb": 3906, "percent": 50,
+            },
+            "disk": {
+                "status": "ok", "label": "Disk",
+                "detail": "50% used (50 GB free)",
+                "total_gb": 100.0, "free_gb": 50.0, "percent": 50,
+            },
+            "microphone": {
+                "status": "ok", "label": "Microphone",
+                "detail": "ReSpeaker detected",
+            },
+        },
+        "network": {
+            "status": "ok", "label": "Network",
+            "detail": "MyWiFi \u00b7 192.168.1.50",
+            "ips": ["192.168.1.50"], "ssid": "MyWiFi", "tailscale": None,
+        },
+        "service": {
+            "status": "ok", "label": "Service", "detail": "active",
+            "active": True, "since": "Mon 2026-04-20 10:00:00 BST",
+        },
+        "uptime": {
+            "status": "ok", "label": "System Uptime",
+            "detail": "1d 2h 30m", "seconds": 95400,
+        },
+        "birdnet": {
+            "status": "ok", "label": "BirdNET", "detail": "6000 species",
+            "path": "/opt/BirdNET", "model_found": True, "label_count": 6000,
+        },
+        "db_integrity": {
+            "status": "ok", "label": "DB Integrity", "detail": "ok",
+            "total_detections": 100, "total_species": 20, "audio_clips": 5,
+        },
+    }
+
+    return (
+        patch("biardtz.web.health_checks.tier1_checks", return_value=tier1_result),
+        patch("biardtz.web.health_checks.tier2_checks", return_value=tier2_result),
+        patch("biardtz.web.health_checks.quick_status", return_value="green"),
+        patch("biardtz.web.health_checks.check_cpu_temp", return_value=tier2_result["hardware"]["cpu_temp"]),
+        patch("biardtz.web.health_checks.check_memory", return_value=tier2_result["hardware"]["memory"]),
+        patch("biardtz.web.health_checks.check_disk", return_value=tier2_result["hardware"]["disk"]),
+        patch("biardtz.web.health_checks.check_microphone", return_value=tier2_result["hardware"]["microphone"]),
+        patch("biardtz.web.health_checks.check_network", return_value=tier2_result["network"]),
+        patch("biardtz.web.health_checks.check_systemd", return_value=tier2_result["service"]),
+        patch("biardtz.web.health_checks.check_system_uptime", return_value=tier2_result["uptime"]),
+        patch("biardtz.web.health_checks.check_birdnet", return_value=tier2_result["birdnet"]),
+        patch("biardtz.web.health_checks.check_db_integrity", return_value=tier2_result["db_integrity"]),
+    )
+
+
+class TestHealthRoutes:
+    """Tests for the health panel and health API routes."""
+
+    def _run_with_mocks(self, tmp_path, path: str):
+        """Helper: create app, mock all health probes, GET the path."""
+        app = _make_app(tmp_path)
+        patches = _mock_health_probes()
+
+        async def _run():
+            for p in patches:
+                p.start()
+            try:
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                    return await c.get(path)
+            finally:
+                for p in patches:
+                    p.stop()
+
+        return asyncio.run(_run())
+
+    def test_partials_health_returns_200(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/partials/health")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+
+    def test_api_health_quick_returns_json_with_color(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/api/health/quick")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "color" in data
+        assert data["color"] in ("green", "yellow", "red")
+
+    def test_api_health_returns_json_with_sections(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/api/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Tier 1 sections
+        assert "pipeline" in data
+        assert "software" in data
+        assert "database" in data
+        assert "config" in data
+        # Tier 2 sections
+        assert "hardware" in data
+        assert "network" in data
+        assert "service" in data
+        assert "uptime" in data
+        assert "birdnet" in data
+        assert "db_integrity" in data
+
+    def test_tier2_db_returns_200(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/db")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert "Integrity" in resp.text
+
+    def test_tier2_birdnet_returns_200(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/birdnet")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert "BirdNET" in resp.text
+
+    def test_tier2_hardware_returns_200(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/hardware")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert "Hardware" in resp.text
+
+    def test_tier2_network_returns_200(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/network")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert "Network" in resp.text
+
+    def test_tier2_uptime_returns_200(self, tmp_path):
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/uptime")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert "Uptime" in resp.text
+
+    def test_api_health_quick_red_when_no_heartbeat(self, tmp_path):
+        """quick_status returns red when pipeline is down."""
+        app = _make_app(tmp_path)
+
+        async def _run():
+            with patch("biardtz.web.health_checks.quick_status", return_value="red"):
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                    return await c.get("/api/health/quick")
+
+        resp = asyncio.run(_run())
+        assert resp.json()["color"] == "red"
+
+    def test_api_health_quick_yellow_when_degraded(self, tmp_path):
+        """quick_status returns yellow when pipeline is degraded."""
+        app = _make_app(tmp_path)
+
+        async def _run():
+            with patch("biardtz.web.health_checks.quick_status", return_value="yellow"):
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                    return await c.get("/api/health/quick")
+
+        resp = asyncio.run(_run())
+        assert resp.json()["color"] == "yellow"
+
+    def test_tier2_hardware_contains_progress_bars(self, tmp_path):
+        """Hardware fragment includes memory and disk progress bars."""
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/hardware")
+        assert resp.status_code == 200
+        # Progress bars use width style
+        assert "style=" in resp.text
+        assert "50%" in resp.text  # memory and disk both at 50%
+
+    def test_tier2_db_shows_counts(self, tmp_path):
+        """DB fragment shows detection and species counts."""
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/db")
+        assert "100" in resp.text  # total_detections
+        assert "20" in resp.text   # total_species
+
+    def test_tier2_network_shows_service_info(self, tmp_path):
+        """Network fragment includes service status."""
+        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/network")
+        assert "Service" in resp.text
+        assert "active" in resp.text

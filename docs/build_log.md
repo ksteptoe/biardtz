@@ -181,6 +181,7 @@ biardtz/                         # Repository root (PyScaffold layout)
 │       ├── __init__.py         # FastAPI app factory
 │       ├── routes.py           # Page, API, and HTMX partial endpoints
 │       ├── image_cache.py      # Wikidata bird image fetcher + SSD cache
+│       ├── health_checks.py    # 14 health probe functions (two-tier)
 │       └── db.py               # Read-only database queries
 │   ├── templates/              # Jinja2 HTML templates
 │   └── static/                 # Static assets (fallback-bird.svg)
@@ -518,6 +519,55 @@ Updated checklist:
 - [ ] First live detection test
 - [ ] Systemd service for auto-start on boot
 - [ ] Validate detection accuracy against known local species
+
+---
+
+## Session Log --- 2026-04-21
+
+### Health Panel Drawer (v1.1.4)
+
+Added a slide-out health panel to the web dashboard, accessible by clicking the coloured dot in the header bar. The panel uses two-tier loading to stay responsive:
+
+**Tier 1 (instant, no subprocess calls):**
+- Pipeline status from the heartbeat file (PID, uptime, audio stream, detection/species counts, recent errors)
+- Database file size and WAL size
+- Software versions (biardtz and Python)
+- Config summary (location, coordinates, confidence, sample rate, channels, timezone)
+
+**Tier 2 (async, loaded with skeleton placeholders via HTMX):**
+- CPU temperature from `/sys/class/thermal/thermal_zone0/temp`
+- Memory usage from `/proc/meminfo`
+- Disk usage for `/mnt/ssd`
+- Microphone detection via `arecord -l`
+- Network info: WiFi SSID (`iwgetid`), IP addresses (`hostname -I`), Tailscale status
+- Systemd service status and uptime
+- BirdNET model validation (model file existence, species label count)
+- Database integrity (`PRAGMA quick_check`, row counts, audio clip count)
+
+The health dot in the header polls `/api/health/quick` every 30 seconds and changes colour: green when healthy, yellow when degraded (stale heartbeat or degraded pipeline status), red when the pipeline is down or the heartbeat is missing.
+
+New files:
+- `src/biardtz/web/health_checks.py` --- 14 probe functions organised into `tier1_checks()` and `tier2_checks()`, plus `quick_status()` for the dot colour
+- `src/biardtz/templates/_health_panel.html` --- Jinja2 template for the drawer with HTMX lazy-loading of Tier 2 sections
+
+New API endpoints:
+- `GET /api/health` --- full Tier 1 + Tier 2 combined as JSON
+- `GET /api/health/quick` --- returns `{"color": "green"}` (or yellow/red)
+- `GET /api/health/tier2/hardware` --- HTML partial for CPU/memory/disk/mic
+- `GET /api/health/tier2/db` --- HTML partial for DB integrity
+- `GET /api/health/tier2/birdnet` --- HTML partial for BirdNET model status
+- `GET /api/health/tier2/network` --- HTML partial for network/WiFi/Tailscale/systemd
+- `GET /api/health/tier2/uptime` --- HTML partial for system uptime
+
+### Today Chart Improvements (v1.1.6--v1.1.11)
+
+Reworked the Today banner drill-down chart to be more useful and visually polished:
+
+- **Midnight-to-now range** --- the chart now shows hours from 00:00 to the current hour, not a rolling 24-hour window. This makes the chart match what users expect from a "today" view.
+- **Hour padding** --- all hours from midnight to now are present on the X axis, even hours with zero detections. No gaps.
+- **Cumulative line** --- a line overlaid on the bar chart shows cumulative detections through the day, plotted on a secondary Y axis. This gives an at-a-glance sense of the day's progression.
+- **Nearest-element tooltip** --- hover shows a tooltip for the nearest element (bar or line), making it easy to read values without precise cursor placement.
+- **Visual refinements** --- bars are visually dominant (wider, higher z-order) and the cursor changes to a pointer when hovering over clickable bars.
 
 ---
 
