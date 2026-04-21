@@ -250,13 +250,14 @@ function buildBannerConfig(type, data) {
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
+                hover: { mode: 'index', intersect: false },
                 plugins: {
                     legend: {
                         display: true,
                         labels: { boxWidth: 12, font: { size: 11 } }
                     },
                     tooltip: {
+                        mode: 'index', intersect: false,
                         callbacks: {
                             label: function(ctx) {
                                 var lbl = ctx.dataset.label || '';
