@@ -180,7 +180,7 @@ class TestRecentDetections:
 
         expected_keys = {
             "id", "timestamp", "common_name", "sci_name",
-            "confidence", "bearing", "direction",
+            "confidence", "bearing", "direction", "detection_type",
         }
         assert set(result[0].keys()) == expected_keys
 

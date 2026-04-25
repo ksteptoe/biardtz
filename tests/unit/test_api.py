@@ -31,5 +31,29 @@ def test_api_exports_detection_logger():
     assert api.DetectionLogger is DetectionLogger
 
 
+def test_api_exports_audio_config():
+    assert hasattr(api, "AudioConfig")
+    from biardtz.config import AudioConfig
+
+    assert api.AudioConfig is AudioConfig
+
+
+def test_api_exports_pipeline_config():
+    assert hasattr(api, "PipelineConfig")
+    from biardtz.config import PipelineConfig
+
+    assert api.PipelineConfig is PipelineConfig
+
+
+def test_api_exports_detector_protocol():
+    assert hasattr(api, "DetectorProtocol")
+    from biardtz.protocols import DetectorProtocol
+
+    assert api.DetectorProtocol is DetectorProtocol
+
+
 def test_api_all():
-    assert set(api.__all__) == {"Config", "Detection", "Detector", "DetectionLogger"}
+    assert set(api.__all__) == {
+        "AudioConfig", "Config", "PipelineConfig",
+        "Detection", "Detector", "DetectorProtocol", "DetectionLogger",
+    }

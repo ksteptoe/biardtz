@@ -28,11 +28,12 @@ _HAS_BIRDNET = _BIRDNET_PATH.exists()
 @pytest.fixture
 def live_config(tmp_path):
     """Config pointing at real hardware and BirdNET, with a tmp_path DB."""
-    from biardtz.config import Config
+    from biardtz.config import AudioConfig, Config, PipelineConfig
 
     device_index = _find_capture_device()
+    bird = PipelineConfig(audio=AudioConfig(device_index=device_index))
     return Config(
-        device_index=device_index,
+        bird=bird,
         db_path=tmp_path / "test_live.db",
     )
 

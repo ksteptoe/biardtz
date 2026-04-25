@@ -27,7 +27,6 @@ class TestPipeline:
         config = Config(
             db_path=db_path,
             birdnet_path=birdnet_dir,
-            confidence_threshold=0.25,
             enable_dashboard=False,
             audio_clip_dir=tmp_path / "audio_clips",
         )

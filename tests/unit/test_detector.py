@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from biardtz.config import Config
+from biardtz.config import Config, PipelineConfig
 from biardtz.detector import Detection, Detector
 
 
@@ -77,7 +77,7 @@ class TestPredictSync:
     def test_predict_filters_by_confidence(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"
         birdnet_dir.mkdir()
-        config = Config(birdnet_path=birdnet_dir, confidence_threshold=0.5)
+        config = Config(bird=PipelineConfig(confidence_threshold=0.5), birdnet_path=birdnet_dir)
 
         labels = [
             "Erithacus rubecula_European Robin",
@@ -111,7 +111,7 @@ class TestPredictSync:
     def test_predict_filters_by_species_list(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"
         birdnet_dir.mkdir()
-        config = Config(birdnet_path=birdnet_dir, confidence_threshold=0.25)
+        config = Config(birdnet_path=birdnet_dir)
 
         labels = [
             "Erithacus rubecula_European Robin",
@@ -140,7 +140,7 @@ class TestPredictSync:
     def test_predict_resamples_from_16khz(self, tmp_path):
         birdnet_dir = tmp_path / "BirdNET-Analyzer"
         birdnet_dir.mkdir()
-        config = Config(birdnet_path=birdnet_dir, sample_rate=16000)
+        config = Config(birdnet_path=birdnet_dir)
 
         labels = ["Erithacus rubecula_European Robin"]
         predictions = np.array([[0.92]])

@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from biardtz.config import Config
+from biardtz.config import AudioConfig, Config, PipelineConfig
 
 
 class TestAudioProducer:
     def test_puts_correct_size_chunks_on_queue(self):
-        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        config = Config(bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000, chunk_duration=3.0)))
         chunk_samples = config.chunk_samples  # 144000
 
         mock_stream = MagicMock()
@@ -91,7 +91,7 @@ class TestAudioProducer:
 
     def test_callback_warns_on_status(self):
         """Cover lines 22-24: callback logs warning when status is set."""
-        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        config = Config(bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000, chunk_duration=3.0)))
         mock_stream = MagicMock()
         captured_callback = None
 
@@ -126,7 +126,7 @@ class TestAudioProducer:
 
     def test_callback_handles_multidim_input(self):
         """Cover line 24: callback extracts column 0 from multi-dim input."""
-        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        config = Config(bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000, chunk_duration=3.0)))
         mock_stream = MagicMock()
         captured_callback = None
 
@@ -169,14 +169,14 @@ class TestReconnectionAndHealth:
 
     def test_reconnects_on_stream_error_with_backoff(self):
         """Outer while loop retries after _run_audio_stream raises, with backoff."""
-        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        config = Config(bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000, chunk_duration=3.0)))
 
         with patch.dict(sys.modules, {"sounddevice": MagicMock()}):
             import biardtz.audio_capture as ac_module
 
             call_count = 0
 
-            async def fake_run_audio_stream(cfg, q, *, health=None):
+            async def fake_run_audio_stream(cfg, q, *, pipeline_name="bird", health=None):
                 nonlocal call_count
                 call_count += 1
                 if call_count < 3:
@@ -200,7 +200,7 @@ class TestReconnectionAndHealth:
 
     def test_health_mark_audio_ok_on_stream_start(self):
         """health.mark_audio_ok(True) is called when stream starts successfully."""
-        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        config = Config(bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000, chunk_duration=3.0)))
         mock_stream = MagicMock()
 
         with patch.dict(sys.modules, {"sounddevice": MagicMock()}):
@@ -229,14 +229,14 @@ class TestReconnectionAndHealth:
 
     def test_health_record_error_on_stream_failure(self):
         """health.mark_audio_ok(False) and health.record_error() called on error."""
-        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        config = Config(bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000, chunk_duration=3.0)))
 
         with patch.dict(sys.modules, {"sounddevice": MagicMock()}):
             import biardtz.audio_capture as ac_module
 
             call_count = 0
 
-            async def fake_run_audio_stream(cfg, q, *, health=None):
+            async def fake_run_audio_stream(cfg, q, *, pipeline_name="bird", health=None):
                 nonlocal call_count
                 call_count += 1
                 if call_count == 1:
@@ -260,12 +260,12 @@ class TestReconnectionAndHealth:
 
     def test_cancelled_error_propagates_without_reconnect(self):
         """CancelledError should propagate, not trigger reconnection."""
-        config = Config(sample_rate=48_000, chunk_duration=3.0)
+        config = Config(bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000, chunk_duration=3.0)))
 
         with patch.dict(sys.modules, {"sounddevice": MagicMock()}):
             import biardtz.audio_capture as ac_module
 
-            async def fake_run_audio_stream(cfg, q, *, health=None):
+            async def fake_run_audio_stream(cfg, q, *, pipeline_name="bird", health=None):
                 raise asyncio.CancelledError()
 
             with patch.object(ac_module, "_run_audio_stream", side_effect=fake_run_audio_stream):

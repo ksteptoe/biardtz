@@ -71,6 +71,7 @@ def register(app: FastAPI) -> None:
         date_from: str = Query(None),
         date_to: str = Query(None),
         search: str = Query(None),
+        type: str = Query(None),
     ):
         # Slider sends 0-100, db expects 0.0-1.0
         db_confidence = min_confidence / 100.0 if min_confidence else None
@@ -86,6 +87,7 @@ def register(app: FastAPI) -> None:
                 date_from=date_from,
                 date_to=date_to,
                 search=search,
+                detection_type=type,
             )
             _attach_audio(detections, conn)
         finally:
@@ -158,6 +160,7 @@ def register(app: FastAPI) -> None:
         date_from: str = Query(None),
         date_to: str = Query(None),
         search: str = Query(None),
+        type: str = Query(None),
     ):
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
@@ -171,6 +174,7 @@ def register(app: FastAPI) -> None:
                 date_from=date_from,
                 date_to=date_to,
                 search=search,
+                detection_type=type,
             )
         finally:
             conn.close()
@@ -180,16 +184,16 @@ def register(app: FastAPI) -> None:
 
     @app.get("/api/charts/timeline")
     async def api_chart_timeline(
-        request: Request, days: int = Query(7),
+        request: Request, days: int = Query(7), type: str = Query(None),
     ):
-        key = f"timeline:{days}"
+        key = f"timeline:{days}:{type}"
         cached = _cached(key)
         if cached is not None:
             return _chart_response(cached)
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            data = _set_cache(key, db.detection_timeline(conn, days=days, local_tz=config.tz))
+            data = _set_cache(key, db.detection_timeline(conn, days=days, local_tz=config.tz, detection_type=type))
         finally:
             conn.close()
         return _chart_response(data)
@@ -199,59 +203,62 @@ def register(app: FastAPI) -> None:
         request: Request,
         days: int = Query(30),
         limit: int = Query(15),
+        type: str = Query(None),
     ):
-        key = f"species:{days}:{limit}"
+        key = f"species:{days}:{limit}:{type}"
         cached = _cached(key)
         if cached is not None:
             return _chart_response(cached)
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            data = _set_cache(key, db.species_frequency(conn, days=days, limit=limit, local_tz=config.tz))
+            data = _set_cache(
+                key, db.species_frequency(conn, days=days, limit=limit, local_tz=config.tz, detection_type=type),
+            )
         finally:
             conn.close()
         return _chart_response(data)
 
     @app.get("/api/charts/heatmap")
     async def api_chart_heatmap(
-        request: Request, days: int = Query(30),
+        request: Request, days: int = Query(30), type: str = Query(None),
     ):
-        key = f"heatmap:{days}"
+        key = f"heatmap:{days}:{type}"
         cached = _cached(key)
         if cached is not None:
             return _chart_response(cached)
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            data = _set_cache(key, db.activity_heatmap(conn, days=days, local_tz=config.tz))
+            data = _set_cache(key, db.activity_heatmap(conn, days=days, local_tz=config.tz, detection_type=type))
         finally:
             conn.close()
         return _chart_response(data)
 
     @app.get("/api/charts/trend")
     async def api_chart_trend(
-        request: Request, days: int = Query(30),
+        request: Request, days: int = Query(30), type: str = Query(None),
     ):
-        key = f"trend:{days}"
+        key = f"trend:{days}:{type}"
         cached = _cached(key)
         if cached is not None:
             return _chart_response(cached)
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            data = _set_cache(key, db.daily_trend(conn, days=days, local_tz=config.tz))
+            data = _set_cache(key, db.daily_trend(conn, days=days, local_tz=config.tz, detection_type=type))
         finally:
             conn.close()
         return _chart_response(data)
 
     @app.get("/api/species")
     async def api_species(
-        request: Request, q: str = Query(None),
+        request: Request, q: str = Query(None), type: str = Query(None),
     ):
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            return db.species_list(conn, q=q)
+            return db.species_list(conn, q=q, detection_type=type)
         finally:
             conn.close()
 

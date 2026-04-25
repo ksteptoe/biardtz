@@ -20,15 +20,24 @@ CREATE TABLE IF NOT EXISTS detections (
     latitude      REAL,
     longitude     REAL,
     bearing       REAL,
-    direction     TEXT
+    direction     TEXT,
+    detection_type TEXT NOT NULL DEFAULT 'bird'
 );
 CREATE INDEX IF NOT EXISTS idx_timestamp ON detections(timestamp);
 CREATE INDEX IF NOT EXISTS idx_species   ON detections(common_name);
 CREATE INDEX IF NOT EXISTS idx_ts_species_conf ON detections(timestamp, common_name, confidence);
+CREATE INDEX IF NOT EXISTS idx_detection_type ON detections(detection_type);
 CREATE TABLE IF NOT EXISTS audio_clips (
     common_name TEXT PRIMARY KEY,
     confidence  REAL NOT NULL,
     filename    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bat_detection_details (
+    detection_id  INTEGER PRIMARY KEY REFERENCES detections(id),
+    call_type     TEXT,
+    freq_min_khz  REAL,
+    freq_max_khz  REAL,
+    duration_ms   REAL
 );
 """
 
@@ -36,6 +45,7 @@ CREATE TABLE IF NOT EXISTS audio_clips (
 _MIGRATION_COLUMNS = [
     ("bearing", "REAL"),
     ("direction", "TEXT"),
+    ("detection_type", "TEXT DEFAULT 'bird'"),
 ]
 
 
@@ -84,14 +94,30 @@ class DetectionLogger:
         ts = datetime.now(timezone.utc).isoformat()
         await self._db.execute(
             "INSERT INTO detections "
-            "(timestamp, common_name, sci_name, confidence, latitude, longitude, bearing, direction) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(timestamp, common_name, sci_name, confidence, latitude, longitude, "
+            "bearing, direction, detection_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, detection.common_name, detection.sci_name, detection.confidence,
              self._config.latitude, self._config.longitude,
-             detection.bearing, detection.direction),
+             detection.bearing, detection.direction, detection.detection_type),
         )
         await self._db.commit()
         self._count += 1
+
+    async def log_bat_details(
+        self, detection_id: int, call_type: str | None = None,
+        freq_min_khz: float | None = None, freq_max_khz: float | None = None,
+        duration_ms: float | None = None,
+    ) -> None:
+        """Store bat-specific metadata for a detection."""
+        assert self._db is not None
+        await self._db.execute(
+            "INSERT OR REPLACE INTO bat_detection_details "
+            "(detection_id, call_type, freq_min_khz, freq_max_khz, duration_ms) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (detection_id, call_type, freq_min_khz, freq_max_khz, duration_ms),
+        )
+        await self._db.commit()
 
     async def get_audio_confidence(self, common_name: str) -> float | None:
         """Return the stored best confidence for a species' audio clip, or None."""

@@ -15,7 +15,7 @@ import click
 
 from biardtz import __version__
 
-from .config import Config
+from .config import AudioConfig, Config, PipelineConfig
 
 __author__ = "Kevin Steptoe"
 __copyright__ = "Kevin Steptoe"
@@ -73,9 +73,14 @@ def _setup_logging(verbosity: int, log_dir: Path = DEFAULT_LOG_DIR) -> None:
 @click.option("--dashboard/--no-dashboard", default=True, show_default=True, help="Enable Rich live dashboard")
 @click.option("--web/--no-web", default=True, show_default=True, help="Enable web dashboard")
 @click.option("--web-port", type=int, default=8080, show_default=True, help="Web dashboard port")
+@click.option("--enable-bat/--no-bat", default=False, show_default=True, help="Enable bat detection pipeline")
+@click.option("--bat-device", type=int, default=None, help="Audio device index for bat ultrasonic mic")
+@click.option("--bat-rate", type=int, default=256_000, show_default=True, help="Bat mic sample rate (Hz)")
+@click.option("--bat-threshold", type=float, default=0.25, show_default=True, help="Bat detection confidence threshold")
 @click.option("-v", "--verbose", count=True, help="-v for info, -vv for debug")
 @click.pass_context
-def cli(ctx, location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, web, web_port, verbose):
+def cli(ctx, location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, web, web_port,
+        enable_bat, bat_device, bat_rate, bat_threshold, verbose):
     """biardtz — real-time bird identification on Raspberry Pi."""
     # If a subcommand was invoked, skip the main pipeline
     if ctx.invoked_subcommand is not None:
@@ -92,15 +97,21 @@ def cli(ctx, location, threshold, db_path, device, birdnet_path, array_bearing, 
         except ValueError as exc:
             raise click.BadParameter(str(exc), param_hint="'--location'") from exc
 
+    bird_audio = AudioConfig(sample_rate=16_000, channels=6, chunk_duration=3.0, device_index=device)
+    bird_pipeline = PipelineConfig(enabled=True, audio=bird_audio, confidence_threshold=threshold)
+
+    bat_audio = AudioConfig(sample_rate=bat_rate, channels=1, chunk_duration=0.5, device_index=bat_device)
+    bat_pipeline = PipelineConfig(enabled=enable_bat, audio=bat_audio, confidence_threshold=bat_threshold)
+
     kwargs = dict(
+        bird=bird_pipeline,
+        bat=bat_pipeline,
         latitude=lat,
         longitude=lon,
         location_name=location,
         tz_name=tz_name,
         array_bearing=array_bearing,
-        confidence_threshold=threshold,
         db_path=Path(db_path),
-        device_index=device,
         enable_dashboard=dashboard,
         enable_web=web,
         web_port=web_port,

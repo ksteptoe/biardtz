@@ -18,6 +18,7 @@ class Detection(NamedTuple):
     confidence: float
     bearing: float | None = None     # compass degrees 0-360
     direction: str | None = None     # octant: N, NE, E, SE, S, SW, W, NW
+    detection_type: str = "bird"     # "bird" or "bat"
 
 
 class Detector:

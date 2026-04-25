@@ -31,6 +31,15 @@ def _today_start_utc(local_tz: ZoneInfo) -> str:
     return start_of_day.astimezone(timezone.utc).isoformat()
 
 
+def _add_type_filter(
+    conditions: list[str], params: list, detection_type: str | None, conn: sqlite3.Connection,
+) -> None:
+    """Append a detection_type filter if the column exists and a type is specified."""
+    if detection_type and _has_column(conn, "detection_type"):
+        conditions.append("detection_type = ?")
+        params.append(detection_type)
+
+
 def recent_detections(
     conn: sqlite3.Connection,
     limit: int = 20,
@@ -40,12 +49,16 @@ def recent_detections(
     date_from: str | None = None,
     date_to: str | None = None,
     search: str | None = None,
+    detection_type: str | None = None,
 ) -> list[dict]:
     """Most recent detections, newest first, with optional filters."""
     has_bearing = _has_column(conn, "bearing")
+    has_dtype = _has_column(conn, "detection_type")
     cols = "id, timestamp, common_name, sci_name, confidence"
     if has_bearing:
         cols += ", bearing, direction"
+    if has_dtype:
+        cols += ", detection_type"
 
     conditions: list[str] = []
     params: list = []
@@ -69,6 +82,7 @@ def recent_detections(
         else:
             conditions.append("common_name LIKE ?")
             params.append(f"%{search}%")
+    _add_type_filter(conditions, params, detection_type, conn)
 
     where = ""
     if conditions:
@@ -83,12 +97,16 @@ def recent_detections(
         for r in results:
             r["bearing"] = None
             r["direction"] = None
+    if not has_dtype:
+        for r in results:
+            r["detection_type"] = "bird"
     return results
 
 
 def species_stats(
     conn: sqlite3.Connection,
     local_tz: ZoneInfo | None = None,
+    detection_type: str | None = None,
 ) -> dict:
     """Today's and all-time stats + leaderboard.
 
@@ -100,26 +118,34 @@ def species_stats(
     else:
         today_start = _today_start_utc(ZoneInfo("UTC"))
 
+    type_conds: list[str] = []
+    type_params: list = []
+    _add_type_filter(type_conds, type_params, detection_type, conn)
+    type_where = (" AND " + " AND ".join(type_conds)) if type_conds else ""
+
     # Today's counts (using local timezone boundary)
     row = conn.execute(
         "SELECT COUNT(*) as count, COUNT(DISTINCT common_name) as species "
-        "FROM detections WHERE timestamp >= ?",
-        (today_start,),
+        f"FROM detections WHERE timestamp >= ?{type_where}",
+        (today_start, *type_params),
     ).fetchone()
     today_count = row["count"]
     today_species = row["species"]
 
     # All-time unique species
+    all_where = ("WHERE " + " AND ".join(type_conds)) if type_conds else ""
     row = conn.execute(
-        "SELECT COUNT(DISTINCT common_name) as total FROM detections",
+        f"SELECT COUNT(DISTINCT common_name) as total FROM detections {all_where}",
+        type_params,
     ).fetchone()
     all_time_species = row["total"]
 
     # Leaderboard (all-time, top 15)
     rows = conn.execute(
         "SELECT common_name, sci_name, COUNT(*) as count "
-        "FROM detections GROUP BY common_name "
+        f"FROM detections {all_where} GROUP BY common_name "
         "ORDER BY count DESC LIMIT 15",
+        type_params,
     ).fetchall()
     leaderboard = [dict(r) for r in rows]
 
@@ -153,16 +179,20 @@ def detection_timeline(
     conn: sqlite3.Connection,
     days: int = 7,
     local_tz: ZoneInfo | None = None,
+    detection_type: str | None = None,
 ) -> list[dict]:
     """Hourly detection counts for the last *days* days, in local time."""
     since = _days_ago_utc(days, local_tz)
     modifier = _utc_offset_modifier(local_tz)
+    conds: list[str] = ["timestamp >= ?"]
+    params: list = [since]
+    _add_type_filter(conds, params, detection_type, conn)
+    where = "WHERE " + " AND ".join(conds)
     rows = conn.execute(
         f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
-        "COUNT(*) AS count "
-        "FROM detections WHERE timestamp >= ? "
+        f"COUNT(*) AS count FROM detections {where} "
         "GROUP BY hour ORDER BY hour",
-        (since,),
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -172,14 +202,19 @@ def species_frequency(
     days: int = 30,
     limit: int = 15,
     local_tz: ZoneInfo | None = None,
+    detection_type: str | None = None,
 ) -> list[dict]:
     """Top species by detection count over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
+    conds: list[str] = ["timestamp >= ?"]
+    params: list = [since]
+    _add_type_filter(conds, params, detection_type, conn)
+    where = "WHERE " + " AND ".join(conds)
     rows = conn.execute(
         "SELECT common_name, sci_name, COUNT(*) AS count "
-        "FROM detections WHERE timestamp >= ? "
+        f"FROM detections {where} "
         "GROUP BY common_name ORDER BY count DESC LIMIT ?",
-        (since, limit),
+        (*params, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -188,16 +223,20 @@ def activity_heatmap(
     conn: sqlite3.Connection,
     days: int = 30,
     local_tz: ZoneInfo | None = None,
+    detection_type: str | None = None,
 ) -> list[dict]:
     """Detection counts by day-of-week and hour-of-day."""
     since = _days_ago_utc(days, local_tz)
+    conds: list[str] = ["timestamp >= ?"]
+    params: list = [since]
+    _add_type_filter(conds, params, detection_type, conn)
+    where = "WHERE " + " AND ".join(conds)
     rows = conn.execute(
         "SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow, "
         "CAST(strftime('%H', timestamp) AS INTEGER) AS hour, "
-        "COUNT(*) AS count "
-        "FROM detections WHERE timestamp >= ? "
+        f"COUNT(*) AS count FROM detections {where} "
         "GROUP BY dow, hour",
-        (since,),
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -206,15 +245,19 @@ def daily_trend(
     conn: sqlite3.Connection,
     days: int = 30,
     local_tz: ZoneInfo | None = None,
+    detection_type: str | None = None,
 ) -> list[dict]:
     """Daily detection count and unique species over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
+    conds: list[str] = ["timestamp >= ?"]
+    params: list = [since]
+    _add_type_filter(conds, params, detection_type, conn)
+    where = "WHERE " + " AND ".join(conds)
     rows = conn.execute(
         "SELECT date(timestamp) AS day, COUNT(*) AS count, "
-        "COUNT(DISTINCT common_name) AS species "
-        "FROM detections WHERE timestamp >= ? "
+        f"COUNT(DISTINCT common_name) AS species FROM detections {where} "
         "GROUP BY day ORDER BY day",
-        (since,),
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -228,24 +271,23 @@ def species_audio_map(conn: sqlite3.Connection) -> dict[str, str]:
         return {}  # table doesn't exist yet
 
 
-def species_list(conn: sqlite3.Connection, q: str | None = None) -> list[dict]:
-    """Distinct species, optionally filtered by prefix/substring."""
+def species_list(
+    conn: sqlite3.Connection, q: str | None = None, detection_type: str | None = None,
+) -> list[dict]:
+    """Distinct species, optionally filtered by prefix/substring and type."""
+    conds: list[str] = []
+    params: list = []
     if q:
         if _GLOB_CHARS.search(q):
-            rows = conn.execute(
-                "SELECT DISTINCT common_name, sci_name FROM detections "
-                "WHERE common_name GLOB ? ORDER BY common_name",
-                (q,),
-            ).fetchall()
+            conds.append("common_name GLOB ?")
+            params.append(q)
         else:
-            rows = conn.execute(
-                "SELECT DISTINCT common_name, sci_name FROM detections "
-                "WHERE common_name LIKE ? ORDER BY common_name",
-                (f"%{q}%",),
-            ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT DISTINCT common_name, sci_name FROM detections "
-            "ORDER BY common_name",
-        ).fetchall()
+            conds.append("common_name LIKE ?")
+            params.append(f"%{q}%")
+    _add_type_filter(conds, params, detection_type, conn)
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    rows = conn.execute(
+        f"SELECT DISTINCT common_name, sci_name FROM detections {where} ORDER BY common_name",
+        params,
+    ).fetchall()
     return [dict(r) for r in rows]

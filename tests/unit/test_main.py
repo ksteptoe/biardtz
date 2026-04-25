@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from biardtz.config import Config
+from biardtz.config import AudioConfig, Config, PipelineConfig
 from biardtz.detector import Detection
 
 
@@ -176,8 +176,8 @@ class TestDetectionWorker:
         det_logger.get_audio_confidence = AsyncMock(return_value=None)
 
         config = Config(
+            bird=PipelineConfig(audio=AudioConfig(sample_rate=48_000)),
             audio_clip_dir=tmp_path / "clips",
-            sample_rate=48_000,
             array_bearing=0.0,
         )
 
@@ -248,7 +248,7 @@ class TestDetectionWorker:
                 await task
 
         asyncio.run(run())
-        health.record_error.assert_called_once_with("Inference error")
+        health.record_error.assert_called_once_with("[bird] Inference error")
 
 
 class TestRun:

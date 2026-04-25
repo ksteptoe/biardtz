@@ -9,13 +9,14 @@ from pathlib import Path
 
 import numpy as np
 
-from .audio_capture import audio_producer
+from .audio_capture import audio_producer, log_available_devices, validate_device_indices
 from .config import Config
 from .dashboard import Dashboard
 from .detector import Detector
 from .doa import estimate_doa
 from .health import HealthMonitor
 from .logger import DetectionLogger
+from .protocols import DetectorProtocol
 
 _logger = logging.getLogger(__name__)
 
@@ -26,27 +27,29 @@ def _species_slug(common_name: str) -> str:
 
 
 def _save_audio_clip(
-    chunk: np.ndarray, audio_dir: Path, filename: str,
+    chunk: np.ndarray, audio_dir: Path, filename: str, sample_rate: int = 16_000,
 ) -> str:
-    """Save a mono float32 16 kHz chunk as 16-bit PCM WAV. Returns filename."""
+    """Save a mono float32 chunk as 16-bit PCM WAV. Returns filename."""
     audio_dir.mkdir(parents=True, exist_ok=True)
     filepath = audio_dir / filename
     pcm = (chunk * 32767).clip(-32768, 32767).astype(np.int16)
     with wave.open(str(filepath), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
-        wf.setframerate(16_000)
+        wf.setframerate(sample_rate)
         wf.writeframes(pcm.tobytes())
     return filename
 
 
 async def _detection_worker(
-    detector: Detector,
+    detector: DetectorProtocol,
     audio_queue: asyncio.Queue,
     det_logger: DetectionLogger,
     dashboard_queue: asyncio.Queue | None,
     config: Config | None = None,
     health: HealthMonitor | None = None,
+    pipeline_name: str = "bird",
+    sample_rate: int = 16_000,
 ) -> None:
     while True:
         item = await audio_queue.get()
@@ -58,15 +61,20 @@ async def _detection_worker(
         try:
             detections = await detector.predict(chunk)
         except Exception:
-            _logger.exception("Inference error")
+            _logger.exception("[%s] Inference error", pipeline_name)
             if health:
-                health.record_error("Inference error")
+                health.record_error(f"[{pipeline_name}] Inference error")
             continue
 
-        # Run DOA if we have detections and multichannel data
+        # Run DOA only for bird detections with multichannel data
         bearing = None
         direction = None
-        if detections and multichannel is not None and config is not None:
+        if (
+            pipeline_name == "bird"
+            and detections
+            and multichannel is not None
+            and config is not None
+        ):
             try:
                 loop = asyncio.get_running_loop()
                 bearing, direction = await loop.run_in_executor(
@@ -80,7 +88,8 @@ async def _detection_worker(
             if bearing is not None:
                 det = det._replace(bearing=bearing, direction=direction)
             _logger.info(
-                "Detected: %s (%.1f%%)%s",
+                "[%s] Detected: %s (%.1f%%)%s",
+                pipeline_name,
                 det.common_name, det.confidence * 100,
                 f" from {det.direction} ({det.bearing:.0f}\u00b0)" if det.direction else "",
             )
@@ -94,7 +103,7 @@ async def _detection_worker(
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
                         None, _save_audio_clip, chunk,
-                        config.audio_clip_dir, filename,
+                        config.audio_clip_dir, filename, sample_rate,
                     )
                     await det_logger.save_audio_clip(
                         det.common_name, det.confidence, filename,
@@ -108,13 +117,10 @@ async def _detection_worker(
 
 async def run(config: Config) -> None:
     """Main async entry point — runs the full detection pipeline."""
-    detector = Detector(config)
     det_logger = DetectionLogger(config)
     await det_logger.init_db()
 
     health = HealthMonitor()
-
-    audio_queue: asyncio.Queue = asyncio.Queue(maxsize=8)
     dashboard_queue: asyncio.Queue | None = asyncio.Queue(maxsize=32) if config.enable_dashboard else None
 
     loop = asyncio.get_running_loop()
@@ -128,23 +134,73 @@ async def run(config: Config) -> None:
         try:
             loop.add_signal_handler(sig, _signal_handler)
         except NotImplementedError:
-            # Windows doesn't support add_signal_handler
             pass
 
     loc = config.location_name or f"{config.latitude:.2f}, {config.longitude:.2f}"
-    _logger.info("Starting biardtz pipeline (threshold=%.0f%%, location=%s)",
-                 config.confidence_threshold * 100, loc)
 
-    tasks = [
-        asyncio.create_task(
-            audio_producer(config, audio_queue, health=health), name="audio",
-        ),
-        asyncio.create_task(
-            _detection_worker(detector, audio_queue, det_logger, dashboard_queue, config, health=health),
-            name="worker",
-        ),
-        asyncio.create_task(health.run(), name="health"),
-    ]
+    # Validate that enabled pipelines use different audio devices
+    if config.bat.enabled:
+        validate_device_indices(config)
+        log_available_devices()
+
+    tasks: list[asyncio.Task] = []
+
+    # --- Bird pipeline ---
+    if config.bird.enabled:
+        _logger.info(
+            "Starting bird pipeline (threshold=%.0f%%, location=%s)",
+            config.bird.confidence_threshold * 100, loc,
+        )
+        detector = Detector(config)
+        bird_queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+        tasks.append(
+            asyncio.create_task(
+                audio_producer(config.bird.audio, bird_queue, pipeline_name="bird", health=health),
+                name="bird-audio",
+            )
+        )
+        tasks.append(
+            asyncio.create_task(
+                _detection_worker(
+                    detector, bird_queue, det_logger, dashboard_queue,
+                    config, health=health, pipeline_name="bird",
+                    sample_rate=config.bird.audio.sample_rate,
+                ),
+                name="bird-worker",
+            )
+        )
+
+    # --- Bat pipeline ---
+    if config.bat.enabled:
+        _logger.info(
+            "Starting bat pipeline (threshold=%.0f%%, rate=%d Hz)",
+            config.bat.confidence_threshold * 100,
+            config.bat.audio.sample_rate,
+        )
+        from .bat_detector import BatDetector
+
+        bat_detector = BatDetector(config.bat)
+        bat_queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+        tasks.append(
+            asyncio.create_task(
+                audio_producer(config.bat.audio, bat_queue, pipeline_name="bat", health=health),
+                name="bat-audio",
+            )
+        )
+        tasks.append(
+            asyncio.create_task(
+                _detection_worker(
+                    bat_detector, bat_queue, det_logger, dashboard_queue,
+                    config, health=health, pipeline_name="bat",
+                    sample_rate=config.bat.audio.sample_rate,
+                ),
+                name="bat-worker",
+            )
+        )
+
+    # --- Shared services ---
+    tasks.append(asyncio.create_task(health.run(), name="health"))
+
     if config.enable_dashboard and dashboard_queue is not None:
         dashboard = Dashboard(local_tz=config.tz)
         tasks.append(asyncio.create_task(dashboard.run(dashboard_queue), name="dashboard"))
