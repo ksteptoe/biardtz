@@ -569,6 +569,87 @@ Reworked the Today banner drill-down chart to be more useful and visually polish
 - **Nearest-element tooltip** --- hover shows a tooltip for the nearest element (bar or line), making it easy to read values without precise cursor placement.
 - **Visual refinements** --- bars are visually dominant (wider, higher z-order) and the cursor changes to a pointer when hovering over clickable bars.
 
+### Bat Analyser — Dual-Pipeline Design (v1.2.0 planned)
+
+The project name "biardtz" was always intended to cover both birds and bats. This section documents the design for adding bat detection alongside the existing bird pipeline.
+
+#### Why Two Microphones?
+
+A single microphone cannot cover both ranges effectively:
+
+- **Bird audio:** Standard USB mic (ReSpeaker) at 16–48 kHz. BirdNET expects 48 kHz mono.
+- **Bat audio:** Ultrasonic USB mic at 192–256 kHz. Bat echolocation calls range from 20–200 kHz, far above any standard microphone's frequency response.
+
+`sounddevice` supports multiple concurrent `InputStream` instances on different USB devices, each with its own sample rate and callback. The two pipelines run as independent async tasks sharing the same database and dashboard.
+
+#### Architecture
+
+```
+USB Mic 1 (bird, 16kHz)  ──>  audio_producer(bird_config)  ──>  bird_queue  ──>  Detector (BirdNET)     ──┐
+                                                                                                          ├──>  DetectionLogger  ──>  detections.db
+USB Mic 2 (bat, 256kHz)  ──>  audio_producer(bat_config)   ──>  bat_queue   ──>  BatDetector (BatDetect2) ──┘
+                                                                                                          └──>  Dashboard + Web
+```
+
+#### Config Changes
+
+The flat `Config` dataclass gains nested structures:
+
+- **`AudioConfig`** — sample_rate, channels, device_index, chunk_duration
+- **`PipelineConfig`** — enabled, audio (AudioConfig), confidence_threshold, model_path
+
+`Config` gets `bird: PipelineConfig` and `bat: PipelineConfig` fields. Bat defaults: rate=256000, channels=1, chunk_duration=0.5s, enabled=False. Backward-compatible properties on `Config` delegate to `bird.audio` so existing code continues to work.
+
+#### Database Schema Changes
+
+- New column: `detection_type TEXT DEFAULT 'bird'` on the detections table
+- New table: `bat_detection_details` (call_type, freq_min_khz, freq_max_khz, duration_ms)
+- Index on `detection_type` for filtered queries
+
+#### Bat Detector
+
+A new `BatDetector` class wraps the BatDetect2 ONNX model:
+
+- Loads the model via `onnxruntime`
+- Processes short windows (~500ms) of ultrasonic audio
+- Returns `Detection` objects with `detection_type="bat"` and bat-specific metadata (call type, frequency range, duration)
+- Added as an optional dependency group: `bat = ["batdetect2>=1.0", "onnxruntime>=1.17"]`
+
+#### CLI Additions
+
+New flags: `--enable-bat`, `--bat-device`, `--bat-rate`, `--bat-threshold`
+
+#### Dashboard & Web
+
+- Type filter toggle (All / Birds / Bats) on the web dashboard
+- Per-type detection counts in stats banners
+- Color-coded rows by detection type
+- Health panel shows per-pipeline stream status
+- Chart endpoints accept `?type=` query parameter
+
+#### Pi 5 Resource Budget
+
+| Resource        | Bird Pipeline             | Bat Pipeline                | Total                    |
+|-----------------|---------------------------|-----------------------------|--------------------------|
+| RAM             | ~200 MB (BirdNET TFLite)  | ~50–100 MB (BatDetect2 ONNX) | ~300–400 MB              |
+| Audio bandwidth | ~32 KB/s (16 kHz stereo)  | ~512 KB/s (256 kHz mono)    | ~544 KB/s                |
+| Inference       | 3s chunks every 3s        | 500ms chunks                | Both fit on 4× A76 cores |
+
+#### Recommended Ultrasonic Microphones
+
+- **Dodotronic Ultramic 250K** — USB, 250 kHz sample rate, well-supported on Linux
+- **AudioMoth USB** — 256 kHz, affordable, good community support
+- **Pettersson M500** — 500 kHz, professional grade, USB
+
+#### Implementation Phases
+
+1. **Config & data model** — nested dataclasses, DB migration, CLI flags
+2. **Audio capture** — parameterize `audio_producer` to accept `AudioConfig`, validate distinct devices
+3. **Bat detector** — `BatDetector` class, `DetectorProtocol`, optional dependency group
+4. **Orchestration** — dual pipeline tasks in `main.py`, per-pipeline health tracking
+5. **Dashboard & web** — type filter, per-type stats, color-coded detection rows
+6. **Testing & docs** — unit/integration tests for bat pipeline, hardware setup guide
+
 ---
 
 ## References
