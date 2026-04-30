@@ -394,7 +394,7 @@ class TestChartSearchRoutes:
         data = resp.json()
         assert isinstance(data, dict)
         # Each value should be a dict of {species: count}
-        for hour_key, species_dict in data.items():
+        for _hour_key, species_dict in data.items():
             assert isinstance(species_dict, dict)
 
     def test_chart_heatmap_species_endpoint(self, tmp_path):
@@ -415,7 +415,7 @@ class TestChartSearchRoutes:
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, dict)
-        for cell_key, species_dict in data.items():
+        for _cell_key, species_dict in data.items():
             assert isinstance(species_dict, dict)
 
     def test_chart_cache_includes_search(self, tmp_path):
