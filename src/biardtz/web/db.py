@@ -64,8 +64,8 @@ def recent_detections(
         params.append(date_to)
     if search:
         if _GLOB_CHARS.search(search):
-            conditions.append("common_name GLOB ?")
-            params.append(search)
+            conditions.append("UPPER(common_name) GLOB ?")
+            params.append(search.upper())
         else:
             conditions.append("common_name LIKE ?")
             params.append(f"%{search}%")
@@ -154,8 +154,8 @@ def _search_clause(search: str | None, params: list) -> str:
     if not search:
         return ""
     if _GLOB_CHARS.search(search):
-        params.append(search)
-        return " AND common_name GLOB ? "
+        params.append(search.upper())
+        return " AND UPPER(common_name) GLOB ? "
     params.append(f"%{search}%")
     return " AND common_name LIKE ? "
 
@@ -319,8 +319,8 @@ def species_list(conn: sqlite3.Connection, q: str | None = None) -> list[dict]:
         if _GLOB_CHARS.search(q):
             rows = conn.execute(
                 "SELECT DISTINCT common_name, sci_name FROM detections "
-                "WHERE common_name GLOB ? ORDER BY common_name",
-                (q,),
+                "WHERE UPPER(common_name) GLOB ? ORDER BY common_name",
+                (q.upper(),),
             ).fetchall()
         else:
             rows = conn.execute(

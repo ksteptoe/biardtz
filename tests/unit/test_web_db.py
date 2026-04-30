@@ -167,10 +167,11 @@ class TestRecentDetectionsGlobSearch:
         assert "Great Tit" not in names
         assert "Robin" not in names
 
-    def test_glob_is_case_sensitive(self, db_conn):
-        """GLOB is case-sensitive, so 'blue*' should NOT match 'Blue Tit'."""
+    def test_glob_is_case_insensitive(self, db_conn):
+        """GLOB is case-insensitive, so 'blue*' matches 'Blue Tit'."""
         results = recent_detections(db_conn, search="blue*")
-        assert results == []
+        assert len(results) == 1
+        assert results[0]["common_name"] == "Blue Tit"
 
 
 # ---------------------------------------------------------------------------

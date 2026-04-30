@@ -2,16 +2,17 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         <!-- Search -->
         <div class="sm:col-span-2 md:col-span-1">
-            <input type="search" name="search" placeholder="Search birds... (* ? [a-h])"
+            <input type="search" name="search" placeholder="Search birds... (Enter for * ? [a-h])"
                    value="{{ filters.search or '' }}"
                    class="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg
                           focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
                    hx-get="/partials/detections"
                    hx-target="#detection-results"
                    hx-include="#filters"
-                   hx-trigger="keyup changed delay:300ms"
+                   hx-trigger="biardtz-search"
                    hx-swap="innerHTML transition:true"
-                   oninput="clearTimeout(this._chartTimer); var v=this.value; this._chartTimer=setTimeout(function(){ if(window.updateChartSearch) updateChartSearch(v); }, 400)">
+                   onkeyup="window._biardtzSearchKey(this, event)"
+                   oninput="window._biardtzSearchInput(this)">
         </div>
 
         <!-- Confidence slider -->
@@ -60,3 +61,29 @@
         </div>
     </div>
 </form>
+<script>
+(function() {
+    var globRe = /[*?\[\]]/;
+    var debounceTimer = null;
+
+    function fireSearch(el) {
+        el.dispatchEvent(new Event('biardtz-search'));
+        if (window.updateChartSearch) window.updateChartSearch(el.value);
+    }
+
+    // On each keystroke: debounce for plain text, ignore for glob (wait for Enter)
+    window._biardtzSearchInput = function(el) {
+        clearTimeout(debounceTimer);
+        if (globRe.test(el.value)) return;  // glob — wait for Enter
+        debounceTimer = setTimeout(function() { fireSearch(el); }, 300);
+    };
+
+    // On keyup: Enter always fires search (for both plain and glob)
+    window._biardtzSearchKey = function(el, evt) {
+        if (evt.key === 'Enter') {
+            clearTimeout(debounceTimer);
+            fireSearch(el);
+        }
+    };
+})();
+</script>

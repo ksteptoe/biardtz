@@ -71,12 +71,13 @@ class TestSearchClause:
         assert "%" in params[0]  # wrapped with %
 
     def test_search_clause_glob(self):
-        """Glob characters in search return a GLOB clause."""
+        """Glob characters in search return a case-insensitive GLOB clause."""
         params: list = []
         clause = web_db._search_clause("Rob*", params)
         assert "GLOB" in clause
+        assert "UPPER" in clause
         assert len(params) == 1
-        assert params[0] == "Rob*"
+        assert params[0] == "ROB*"
 
     def test_search_clause_none(self):
         """None search returns empty string and no params."""
