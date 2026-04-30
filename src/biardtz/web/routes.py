@@ -97,17 +97,20 @@ def register(app: FastAPI) -> None:
         )
 
     @app.get("/partials/stats", response_class=HTMLResponse)
-    async def partial_stats(request: Request):
+    async def partial_stats(
+        request: Request,
+        search: str = Query(None),
+    ):
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            stats = db.species_stats(conn, config.tz)
+            stats = db.species_stats(conn, config.tz, search=search)
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
             request,
             "_stats.html",
-            {"stats": stats},
+            {"stats": stats, "search": search},
         )
 
     @app.get("/partials/tab/live", response_class=HTMLResponse)

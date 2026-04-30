@@ -21,6 +21,22 @@
     <button class="chart-period-btn px-3 py-1.5 text-sm font-medium rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200" data-days="0" onclick="updateCharts(0, this)">All</button>
 </div>
 
+<!-- Chart drill-down panel (hidden until a chart point is clicked) -->
+<div id="chart-drill-down" class="hidden mb-4">
+    <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 id="chart-drill-title" class="text-sm font-semibold text-stone-600"></h3>
+            <button onclick="closeChartDrill()"
+                    class="text-stone-400 hover:text-stone-600 transition p-1" title="Close">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div id="chart-drill-results"></div>
+    </div>
+</div>
+
 <!-- Detection timeline -->
 <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="text-sm font-semibold text-stone-600 mb-2">Detection Timeline</h3>
@@ -63,8 +79,12 @@
     var trendChart = null;
     var currentDays = 1;
     var currentSearch = '';
-    var timelineSpeciesData = {};  // {hour: {species: count}}
-    var heatmapSpeciesData = {};   // {"dow-hour": {species: count}}
+    var timelineSpeciesData = {};
+    var heatmapSpeciesData = {};
+    // Store raw chart data for drill-down
+    var timelineData = [];
+    var speciesData = [];
+    var trendData = [];
 
     function hideSkeletons() {
         document.querySelectorAll('.chart-skeleton').forEach(function(el) { el.remove(); });
@@ -77,13 +97,67 @@
         amberBg: 'rgba(245, 158, 11, 0.15)',
     };
 
-    function speciesToolTipTitle(items) {
-        return items[0].label || '';
+    /* ── Drill-down ─────────────────────────────────────────────── */
+
+    function chartDrill(title, params) {
+        var panel = document.getElementById('chart-drill-down');
+        var results = document.getElementById('chart-drill-results');
+        document.getElementById('chart-drill-title').textContent = title;
+        results.innerHTML = '<div class="text-center text-stone-400 py-8">Loading...</div>';
+        panel.classList.remove('hidden');
+        var sp = currentSearch ? '&search=' + encodeURIComponent(currentSearch) : '';
+        fetch('/partials/detections?' + params + sp)
+            .then(function(r) { return r.text(); })
+            .then(function(html) {
+                results.innerHTML = html;
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
     }
+
+    window.closeChartDrill = function() {
+        document.getElementById('chart-drill-down').classList.add('hidden');
+        document.getElementById('chart-drill-results').innerHTML = '';
+    };
+
+    function onTimelineClick(evt, els) {
+        if (!els.length) return;
+        var idx = els[0].index;
+        var item = timelineData[idx];
+        if (!item) return;
+        var hourStr = item.hour;
+        var d = new Date(hourStr);
+        var next = new Date(d.getTime() + 3600000);
+        var params = 'limit=50&date_from=' + encodeURIComponent(hourStr)
+            + '&date_to=' + encodeURIComponent(next.toISOString().slice(0, 19));
+        var hh = hourStr.slice(11, 16);
+        chartDrill('Detections at ' + hh, params);
+    }
+
+    function onSpeciesClick(evt, els) {
+        if (!els.length) return;
+        var idx = els[0].index;
+        var item = speciesData[idx];
+        if (!item) return;
+        var params = 'limit=50&species=' + encodeURIComponent(item.common_name);
+        chartDrill(item.common_name + ' — All Detections', params);
+    }
+
+    function onTrendClick(evt, els) {
+        if (!els.length) return;
+        var idx = els[0].index;
+        var item = trendData[idx];
+        if (!item) return;
+        var dayStr = item.day;
+        var nextDay = new Date(new Date(dayStr).getTime() + 86400000);
+        var params = 'limit=50&date_from=' + encodeURIComponent(dayStr)
+            + '&date_to=' + encodeURIComponent(nextDay.toISOString().slice(0, 10));
+        chartDrill('Detections on ' + dayStr, params);
+    }
+
+    /* ── Tooltip helpers ────────────────────────────────────────── */
 
     function timelineTooltipLabel(ctx) {
         var hour = ctx.label;
-        // Look up species breakdown for this hour
         var breakdown = timelineSpeciesData[hour];
         if (breakdown) {
             var lines = [];
@@ -100,7 +174,14 @@
         return 'Detections: ' + ctx.parsed.y;
     }
 
+    function timelineTooltipFooter() {
+        return 'Click for details';
+    }
+
+    /* ── Chart initialisers ─────────────────────────────────────── */
+
     function initTimeline(data) {
+        timelineData = data;
         var ctx = document.getElementById('chart-timeline');
         if (!ctx) return;
         if (timelineChart) timelineChart.destroy();
@@ -143,15 +224,23 @@
                         backgroundColor: 'rgba(0,0,0,0.8)',
                         padding: 8,
                         callbacks: {
-                            label: timelineTooltipLabel
-                        }
+                            label: timelineTooltipLabel,
+                            footer: timelineTooltipFooter
+                        },
+                        footerFont: { style: 'italic', size: 10 },
+                        footerColor: 'rgba(255,255,255,0.6)',
                     },
+                },
+                onClick: onTimelineClick,
+                onHover: function(evt, els) {
+                    evt.native.target.style.cursor = els.length ? 'pointer' : 'default';
                 },
             }
         });
     }
 
     function initSpecies(data) {
+        speciesData = data;
         var ctx = document.getElementById('chart-species');
         if (!ctx) return;
         if (speciesChart) speciesChart.destroy();
@@ -186,13 +275,26 @@
                 },
                 plugins: {
                     legend: { display: false },
-                    tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 8 },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        padding: 8,
+                        callbacks: {
+                            footer: function() { return 'Click for details'; }
+                        },
+                        footerFont: { style: 'italic', size: 10 },
+                        footerColor: 'rgba(255,255,255,0.6)',
+                    },
+                },
+                onClick: onSpeciesClick,
+                onHover: function(evt, els) {
+                    evt.native.target.style.cursor = els.length ? 'pointer' : 'default';
                 },
             }
         });
     }
 
     function initTrend(data) {
+        trendData = data;
         var ctx = document.getElementById('chart-trend');
         if (!ctx) return;
         if (trendChart) trendChart.destroy();
@@ -248,7 +350,19 @@
                 },
                 plugins: {
                     legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                    tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 8 },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        padding: 8,
+                        callbacks: {
+                            footer: function() { return 'Click for details'; }
+                        },
+                        footerFont: { style: 'italic', size: 10 },
+                        footerColor: 'rgba(255,255,255,0.6)',
+                    },
+                },
+                onClick: onTrendClick,
+                onHover: function(evt, els) {
+                    evt.native.target.style.cursor = els.length ? 'pointer' : 'default';
                 },
             }
         });
@@ -268,12 +382,10 @@
         });
 
         var html = '<div style="display:grid; grid-template-columns: 40px repeat(24, 1fr); gap:2px; min-width:400px;">';
-        // Header row
         html += '<div></div>';
         for (var h = 0; h < 24; h++) {
             html += '<div class="text-center text-xs text-stone-400" style="font-size:9px;">' + (h < 10 ? '0' : '') + h + '</div>';
         }
-        // Data rows
         for (var d = 0; d < 7; d++) {
             html += '<div class="text-xs text-stone-500 flex items-center">' + days[d] + '</div>';
             for (var h = 0; h < 24; h++) {
@@ -291,7 +403,6 @@
                 } else {
                     bg = '#059669';
                 }
-                // Build tooltip with species breakdown
                 var tipKey = d + '-' + h;
                 var tip = days[d] + ' ' + h + ':00 — ' + count + ' detections';
                 var breakdown = heatmapSpeciesData[tipKey];
@@ -301,15 +412,39 @@
                     if (entries.length > 5) speciesTip += ', +' + (entries.length - 5) + ' more';
                     tip += '\n' + speciesTip;
                 }
-                html += '<div style="background:' + bg + '; aspect-ratio:1; border-radius:2px;" title="' + tip.replace(/"/g, '&quot;') + '"></div>';
+                html += '<div style="background:' + bg + '; aspect-ratio:1; border-radius:2px; cursor:' + (count > 0 ? 'pointer' : 'default') + ';" title="' + tip.replace(/"/g, '&quot;') + '"'
+                    + (count > 0 ? ' onclick="heatmapDrill(' + d + ',' + h + ')"' : '')
+                    + '></div>';
             }
         }
         html += '</div>';
         container.innerHTML = html;
     }
 
+    // Heatmap cell click drill-down (exposed globally for onclick)
+    window.heatmapDrill = function(dow, hour) {
+        var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        var hh = String(hour).padStart(2, '0');
+        // We can't filter by day-of-week via the detections API directly,
+        // so show the hour for all days in the period
+        var title = days[dow] + ' at ' + hh + ':00';
+        // Use the heatmap species data to list what was detected
+        var tipKey = dow + '-' + hour;
+        var breakdown = heatmapSpeciesData[tipKey];
+        if (breakdown) {
+            var species = Object.keys(breakdown);
+            if (species.length === 1) {
+                chartDrill(title + ' — ' + species[0], 'limit=50&species=' + encodeURIComponent(species[0]));
+            } else {
+                // Show all matching species via search
+                chartDrill(title + ' (' + Object.values(breakdown).reduce(function(a,b){return a+b;},0) + ' detections)', 'limit=50');
+            }
+        }
+    };
+
+    /* ── Search helpers ─────────────────────────────────────────── */
+
     function getSearchTerm() {
-        // Find the visible search input (there are two — mobile and desktop)
         var inputs = document.querySelectorAll('input[name="search"]');
         var val = '';
         for (var i = 0; i < inputs.length; i++) {
@@ -318,7 +453,6 @@
                 break;
             }
         }
-        // Fallback: check all inputs for any non-empty value
         if (!val) {
             for (var i = 0; i < inputs.length; i++) {
                 if (inputs[i].value && inputs[i].value.trim()) {
@@ -342,13 +476,13 @@
 
     function fetchCharts(days) {
         currentDays = days;
+        closeChartDrill();
         var param = days > 0 ? '?days=' + days : '?days=3650';
         var sp = searchParam();
         var done = 0;
-        var total = 6;  // 4 main charts + 2 breakdown endpoints
+        var total = 6;
         function onDone() { if (++done >= total) hideSkeletons(); }
 
-        // Main chart data
         fetch('/api/charts/timeline' + param + sp)
             .then(function(r) { return r.json(); })
             .then(function(d) { initTimeline(d); onDone(); });
@@ -361,8 +495,6 @@
         fetch('/api/charts/heatmap' + param + sp)
             .then(function(r) { return r.json(); })
             .then(function(d) { initHeatmap(d); onDone(); });
-
-        // Species breakdown for tooltips
         fetch('/api/charts/timeline/species' + param + sp)
             .then(function(r) { return r.json(); })
             .then(function(d) { timelineSpeciesData = d; onDone(); });
@@ -382,7 +514,6 @@
         }
     }
 
-    // Expose for period buttons
     window.updateCharts = function(days, btn) {
         document.querySelectorAll('.chart-period-btn').forEach(function(b) {
             b.className = b.className
@@ -396,7 +527,6 @@
         fetchCharts(days);
     };
 
-    // Expose for search integration
     window.updateChartSearch = function(searchTerm) {
         currentSearch = (searchTerm || '').trim();
         updateSearchBadge();
@@ -406,15 +536,18 @@
     window.clearChartSearch = function() {
         currentSearch = '';
         updateSearchBadge();
-        // Clear ALL search inputs (mobile + desktop) and trigger HTMX refresh
         document.querySelectorAll('input[name="search"]').forEach(function(el) {
             el.value = '';
             el.dispatchEvent(new Event('biardtz-search'));
         });
+        // Also refresh leaderboard
+        var statsPanel = document.getElementById('stats-panel');
+        if (statsPanel) {
+            htmx.ajax('GET', '/partials/stats', {target: '#stats-panel', swap: 'innerHTML'});
+        }
         fetchCharts(currentDays);
     };
 
-    // Initial load
     fetchCharts(1);
 })();
 </script>

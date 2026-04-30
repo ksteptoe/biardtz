@@ -72,6 +72,12 @@
         el.dispatchEvent(new Event('biardtz-search'));
         // Update all charts with the search term
         if (window.updateChartSearch) window.updateChartSearch(el.value);
+        // Refresh leaderboard with search filter
+        var statsPanel = document.getElementById('stats-panel');
+        if (statsPanel) {
+            var searchParam = el.value ? '?search=' + encodeURIComponent(el.value.trim()) : '';
+            htmx.ajax('GET', '/partials/stats' + searchParam, {target: '#stats-panel', swap: 'innerHTML'});
+        }
     }
 
     // On each input: debounce for plain text, skip for glob (wait for Enter)

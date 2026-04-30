@@ -597,6 +597,21 @@ Refined the bird search feature with several usability and correctness fixes:
 - **Charts sync with search** --- all four charts (Detection Timeline, Daily Trend, Top Species, Activity Heatmap) now properly filter when a search is active. A green filter badge shows "Showing results for..." with an x button to clear. Period buttons (Today, 7 days, 30 days, All) continue to work with the filter applied.
 - **Form submission fix** --- pressing Enter in the search field no longer submits the HTML form, which was previously blanking the search field. The form now uses `onsubmit="return false;"` to prevent default submission.
 
+### Leaderboard Filters with Search (v1.1.14)
+
+The Species Leaderboard in the right sidebar now responds to the bird search filter. When a search is active (e.g. `*owl*`), the leaderboard shows only matching species ranked by detection count instead of the full list. The three summary stats --- today's detection count, today's species count, and all-time species count --- also update to reflect the filtered results. The filter clears automatically when the search is cleared, restoring the full leaderboard and stats.
+
+### Chart Drill-Down (v1.1.15)
+
+All four charts now support click-to-drill-down, letting users explore the data behind any visual element:
+
+- **Detection Timeline** --- click any point to see individual detections for that hour
+- **Top Species bar chart** --- click a species bar to see all detections of that species
+- **Daily Trend** --- click a day to see all detections for that date
+- **Activity Heatmap** --- click a cell to see detections for that specific day/hour combination
+
+Clickable elements show a "Click for details" hint in tooltips, and the cursor changes to a pointer on hover. Clicking opens a drill-down panel above the charts displaying a list of matching detection cards with a close button. When a bird search filter is active, the drill-down results respect that filter, showing only matching species.
+
 ---
 
 ## References

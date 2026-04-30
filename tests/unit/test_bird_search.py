@@ -683,3 +683,136 @@ class TestSearchEdgeCases:
         names = {r["common_name"] for r in result}
         assert names == {"Barn Owl", "Tawny Owl"}
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# DB + Route: species_stats with search filter (leaderboard filtering)
+# ---------------------------------------------------------------------------
+class TestSpeciesStatsSearch:
+    """Verify that species_stats() filters leaderboard and counts when search is given."""
+
+    def test_species_stats_no_search_returns_all(self, tmp_path):
+        """Baseline: without search, leaderboard contains all species."""
+        conn = _owl_db(tmp_path)
+        stats = web_db.species_stats(conn)
+        names = {row["common_name"] for row in stats["leaderboard"]}
+        # All 6 species from _mixed_species_rows should appear
+        assert names == {"Tawny Owl", "Barn Owl", "Blue Tit", "Robin", "Blackbird", "Great Tit"}
+        conn.close()
+
+    def test_species_stats_with_glob_search(self, tmp_path):
+        """search='*owl*' restricts leaderboard to owl species only."""
+        conn = _owl_db(tmp_path)
+        stats = web_db.species_stats(conn, search="*owl*")
+        names = {row["common_name"] for row in stats["leaderboard"]}
+        assert names == {"Tawny Owl", "Barn Owl"}
+        conn.close()
+
+    def test_species_stats_with_plain_search(self, tmp_path):
+        """search='tit' restricts leaderboard to tit species only."""
+        conn = _owl_db(tmp_path)
+        stats = web_db.species_stats(conn, search="tit")
+        names = {row["common_name"] for row in stats["leaderboard"]}
+        assert names == {"Blue Tit", "Great Tit"}
+        conn.close()
+
+    def test_species_stats_search_affects_counts(self, tmp_path):
+        """today_count and all_time_species reflect the filtered data."""
+        conn = _owl_db(tmp_path)
+
+        # Unfiltered baseline
+        all_stats = web_db.species_stats(conn)
+
+        # Filtered to owls only
+        owl_stats = web_db.species_stats(conn, search="*owl*")
+
+        # Filtered today_count should be <= unfiltered
+        assert owl_stats["today_count"] <= all_stats["today_count"]
+        # Filtered today_count should equal number of owl rows (2)
+        assert owl_stats["today_count"] == 2
+        # Filtered all_time_species should be 2 (Tawny Owl, Barn Owl)
+        assert owl_stats["all_time_species"] == 2
+        # Filtered today_species should be 2
+        assert owl_stats["today_species"] == 2
+
+        conn.close()
+
+    def test_partial_stats_search_param(self, tmp_path):
+        """/partials/stats?search=*owl* returns 200 and filtered HTML."""
+        app = _make_app(tmp_path, _mixed_species_rows())
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/stats?search=*owl*")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        html = resp.text
+        # Owl species should appear in the rendered HTML
+        assert "Tawny Owl" in html
+        assert "Barn Owl" in html
+        # Non-owl species should NOT appear in the leaderboard
+        assert "Robin" not in html
+        assert "Blackbird" not in html
+
+
+# ---------------------------------------------------------------------------
+# Routes: chart drill-down with combined filters
+# ---------------------------------------------------------------------------
+class TestDrillDownFilters:
+    """Verify that /partials/detections supports date range + species + search combos."""
+
+    def test_detections_with_date_range_and_search(self, tmp_path):
+        """/partials/detections?date_from=X&date_to=Y&search=*owl* returns filtered HTML."""
+        rows = _mixed_species_rows()
+        app = _make_app(tmp_path, rows)
+
+        # Use a date range that includes today
+        date_from = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00+00:00")
+        date_to = datetime.now(timezone.utc).strftime("%Y-%m-%dT23:59:59+00:00")
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get(
+                    "/partials/detections",
+                    params={
+                        "date_from": date_from,
+                        "date_to": date_to,
+                        "search": "*owl*",
+                    },
+                )
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        html = resp.text
+        # Owl species should appear
+        assert "Tawny Owl" in html or "Barn Owl" in html
+        # Non-owl species should NOT appear
+        assert "Robin" not in html
+        assert "Blue Tit" not in html
+
+    def test_detections_with_species_and_search(self, tmp_path):
+        """/partials/detections?species=Tawny+Owl&search=*owl* returns filtered HTML."""
+        rows = _mixed_species_rows()
+        app = _make_app(tmp_path, rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get(
+                    "/partials/detections",
+                    params={
+                        "species": "Tawny Owl",
+                        "search": "*owl*",
+                    },
+                )
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        html = resp.text
+        # Only Tawny Owl should appear (species= is exact match, search is additive)
+        assert "Tawny Owl" in html
+        # Barn Owl matches search but not the species= exact filter
+        assert "Barn Owl" not in html

@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 1.1.15
+
+- Chart drill-down: click any chart element (timeline point, species bar, daily trend bar, heatmap cell) to see matching detection cards in a drill-down panel
+- Tooltips show "Click for details" hint; cursor changes to pointer on clickable elements
+- Drill-down panel appears above charts with detection list and close button
+- Active bird search filter is preserved in drill-down results
+
+## Version 1.1.14
+
+- Species Leaderboard filters with search: searching `*owl*` shows only owl species ranked by detection count
+- Summary stats (today count, today species, all-time species) reflect filtered results
+- Clears automatically when search is cleared
+
 ## Version 1.1.13
 
 - Case-insensitive glob patterns: `*owl*` now matches "Tawny Owl", "Barn Owl", etc. regardless of capitalisation (uses `UPPER(common_name) GLOB UPPER(pattern)` internally)

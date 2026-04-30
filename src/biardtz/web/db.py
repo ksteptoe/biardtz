@@ -89,38 +89,65 @@ def recent_detections(
 def species_stats(
     conn: sqlite3.Connection,
     local_tz: ZoneInfo | None = None,
+    search: str | None = None,
 ) -> dict:
     """Today's and all-time stats + leaderboard.
 
     If *local_tz* is provided, "today" is calculated in that timezone.
-    Otherwise falls back to UTC.
+    Otherwise falls back to UTC.  When *search* is given the leaderboard
+    and counts are filtered to matching species only.
     """
     if local_tz is not None:
         today_start = _today_start_utc(local_tz)
     else:
         today_start = _today_start_utc(ZoneInfo("UTC"))
 
+    # Build optional search filter
+    search_sql = ""
+    search_params: list = []
+    if search:
+        if _GLOB_CHARS.search(search):
+            search_sql = " AND UPPER(common_name) GLOB ? "
+            search_params = [search.upper()]
+        else:
+            search_sql = " AND common_name LIKE ? "
+            search_params = [f"%{search}%"]
+
     # Today's counts (using local timezone boundary)
     row = conn.execute(
         "SELECT COUNT(*) as count, COUNT(DISTINCT common_name) as species "
-        "FROM detections WHERE timestamp >= ?",
-        (today_start,),
+        f"FROM detections WHERE timestamp >= ? {search_sql}",
+        [today_start] + search_params,
     ).fetchone()
     today_count = row["count"]
     today_species = row["species"]
 
     # All-time unique species
-    row = conn.execute(
-        "SELECT COUNT(DISTINCT common_name) as total FROM detections",
-    ).fetchone()
+    if search_sql:
+        row = conn.execute(
+            f"SELECT COUNT(DISTINCT common_name) as total FROM detections WHERE 1=1 {search_sql}",
+            search_params,
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT common_name) as total FROM detections",
+        ).fetchone()
     all_time_species = row["total"]
 
     # Leaderboard (all-time, top 15)
-    rows = conn.execute(
-        "SELECT common_name, sci_name, COUNT(*) as count "
-        "FROM detections GROUP BY common_name "
-        "ORDER BY count DESC LIMIT 15",
-    ).fetchall()
+    if search_sql:
+        rows = conn.execute(
+            "SELECT common_name, sci_name, COUNT(*) as count "
+            f"FROM detections WHERE 1=1 {search_sql} GROUP BY common_name "
+            "ORDER BY count DESC LIMIT 15",
+            search_params,
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT common_name, sci_name, COUNT(*) as count "
+            "FROM detections GROUP BY common_name "
+            "ORDER BY count DESC LIMIT 15",
+        ).fetchall()
     leaderboard = [dict(r) for r in rows]
 
     return {
