@@ -470,3 +470,216 @@ class TestNewEndpointsExist:
         app = _make_app(tmp_path)
         route_paths = [r.path for r in app.routes if hasattr(r, "path")]
         assert "/api/charts/heatmap/species" in route_paths
+
+
+# ---------------------------------------------------------------------------
+# Shared test data for glob / case-insensitive tests
+# ---------------------------------------------------------------------------
+def _mixed_species_rows():
+    """Return rows with owls and non-owls, built with the current timestamp."""
+    now = _now_iso()
+    return [
+        (now, "Tawny Owl", "Strix aluco", 0.90, None, None),
+        (now, "Barn Owl", "Tyto alba", 0.85, None, None),
+        (now, "Blue Tit", "Cyanistes caeruleus", 0.80, None, None),
+        (now, "Robin", "Erithacus rubecula", 0.75, None, None),
+        (now, "Blackbird", "Turdus merula", 0.70, None, None),
+        (now, "Great Tit", "Parus major", 0.65, None, None),
+    ]
+
+
+def _owl_db(tmp_path):
+    """Create a test DB with mixed species and return a connection."""
+    db_path = tmp_path / "test.db"
+    _create_test_db(db_path, _mixed_species_rows())
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+# ---------------------------------------------------------------------------
+# DB: case-insensitive glob tests
+# ---------------------------------------------------------------------------
+class TestGlobCaseInsensitive:
+    """Verify that GLOB searches work case-insensitively at the DB layer."""
+
+    def test_glob_case_insensitive_lowercase(self, tmp_path):
+        """Lowercase glob *owl* matches 'Tawny Owl' and 'Barn Owl'."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, search="*owl*")
+        names = {r["common_name"] for r in result}
+        assert names == {"Tawny Owl", "Barn Owl"}
+        conn.close()
+
+    def test_glob_case_insensitive_uppercase(self, tmp_path):
+        """Uppercase glob *OWL* matches 'Tawny Owl' and 'Barn Owl'."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, search="*OWL*")
+        names = {r["common_name"] for r in result}
+        assert names == {"Tawny Owl", "Barn Owl"}
+        conn.close()
+
+    def test_glob_case_insensitive_mixed(self, tmp_path):
+        """Mixed-case glob *OwL* matches 'Tawny Owl' and 'Barn Owl'."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, search="*OwL*")
+        names = {r["common_name"] for r in result}
+        assert names == {"Tawny Owl", "Barn Owl"}
+        conn.close()
+
+    def test_glob_bracket_case_insensitive(self, tmp_path):
+        """Bracket glob [bt]* matches names starting with B or T (case-insensitive)."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, limit=20, search="[bt]*")
+        names = {r["common_name"] for r in result}
+        # UPPER makes it [BT]*, matching Blue Tit, Blackbird, Barn Owl, Tawny Owl
+        assert "Blue Tit" in names
+        assert "Blackbird" in names
+        assert "Tawny Owl" in names
+        assert "Barn Owl" in names
+        # Robin and Great Tit should NOT match
+        assert "Robin" not in names
+        conn.close()
+
+    def test_glob_question_mark_case_insensitive(self, tmp_path):
+        """Question-mark glob ?lue* matches 'Blue Tit' (case-insensitive)."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, search="?lue*")
+        names = {r["common_name"] for r in result}
+        assert "Blue Tit" in names
+        # Should not match other species
+        assert len(names) == 1
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# DB: _search_clause upper-casing behaviour
+# ---------------------------------------------------------------------------
+class TestSearchClauseUpperCasing:
+    """Verify that _search_clause uppercases glob params but not LIKE params."""
+
+    def test_search_clause_glob_uppercases_param(self):
+        """Glob search uppercases the parameter for case-insensitive matching."""
+        params: list = []
+        clause = web_db._search_clause("*owl*", params)
+        assert "GLOB" in clause
+        assert "UPPER" in clause
+        assert len(params) == 1
+        assert params[0] == "*OWL*"
+
+    def test_search_clause_like_preserves_case(self):
+        """Plain text search does NOT uppercase the parameter (LIKE is case-insensitive)."""
+        params: list = []
+        clause = web_db._search_clause("owl", params)
+        assert "LIKE" in clause
+        assert len(params) == 1
+        assert params[0] == "%owl%"  # preserved lowercase
+
+
+# ---------------------------------------------------------------------------
+# Routes: chart filtering with glob search
+# ---------------------------------------------------------------------------
+class TestChartGlobSearchRoutes:
+    """Verify that glob search patterns filter chart API endpoints correctly."""
+
+    def test_timeline_filtered_by_glob_search(self, tmp_path):
+        """GET /api/charts/timeline?search=*owl* returns only owl detections."""
+        app = _make_app(tmp_path, _mixed_species_rows())
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/timeline?days=1&search=*owl*")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        total = sum(d["count"] for d in data)
+        assert total == 2  # Tawny Owl + Barn Owl
+
+    def test_species_filtered_by_glob_search(self, tmp_path):
+        """GET /api/charts/species?search=*owl* returns only owl species."""
+        app = _make_app(tmp_path, _mixed_species_rows())
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/species?days=1&search=*owl*")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        names = {d["common_name"] for d in data}
+        assert names == {"Tawny Owl", "Barn Owl"}
+
+    def test_heatmap_filtered_by_glob_search(self, tmp_path):
+        """GET /api/charts/heatmap?search=*owl* returns only owl data."""
+        app = _make_app(tmp_path, _mixed_species_rows())
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/heatmap?days=1&search=*owl*")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        total = sum(d["count"] for d in data)
+        assert total == 2
+
+    def test_trend_filtered_by_glob_search(self, tmp_path):
+        """GET /api/charts/trend?search=*owl* returns only owl data."""
+        app = _make_app(tmp_path, _mixed_species_rows())
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/trend?days=1&search=*owl*")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["count"] == 2
+        assert data[0]["species"] == 2  # two distinct owl species
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+class TestSearchEdgeCases:
+    """Edge cases for both plain text and glob search."""
+
+    def test_glob_no_match_returns_empty(self, tmp_path):
+        """Glob pattern *xyz* returns no results when nothing matches."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, search="*xyz*")
+        assert result == []
+        conn.close()
+
+    def test_plain_search_partial_match(self, tmp_path):
+        """Plain text 'tit' matches 'Blue Tit' and 'Great Tit' but not 'Robin'."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, limit=20, search="tit")
+        names = {r["common_name"] for r in result}
+        assert "Blue Tit" in names
+        assert "Great Tit" in names
+        assert "Robin" not in names
+        assert "Tawny Owl" not in names
+        conn.close()
+
+    def test_empty_search_returns_all(self, tmp_path):
+        """Empty string search returns all detections."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_frequency(conn, days=1, limit=20, search="")
+        names = {r["common_name"] for r in result}
+        assert len(names) == 6  # all species
+        conn.close()
+
+    def test_search_species_list_case_insensitive(self, tmp_path):
+        """species_list(conn, q='*owl*') matches case-insensitively."""
+        conn = _owl_db(tmp_path)
+        result = web_db.species_list(conn, q="*owl*")
+        names = {r["common_name"] for r in result}
+        assert names == {"Barn Owl", "Tawny Owl"}
+        conn.close()

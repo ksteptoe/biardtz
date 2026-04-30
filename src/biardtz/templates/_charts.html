@@ -308,9 +308,22 @@
         container.innerHTML = html;
     }
 
+    function getSearchTerm() {
+        // Always read from the DOM so charts stay in sync with the input
+        var el = document.querySelector('input[name="search"]');
+        var val = el ? (el.value || '').trim() : '';
+        // Keep currentSearch in sync
+        if (val !== currentSearch) {
+            currentSearch = val;
+            updateSearchBadge();
+        }
+        return currentSearch;
+    }
+
     function searchParam() {
-        if (!currentSearch) return '';
-        return '&search=' + encodeURIComponent(currentSearch);
+        var term = getSearchTerm();
+        if (!term) return '';
+        return '&search=' + encodeURIComponent(term);
     }
 
     function fetchCharts(days) {
@@ -379,12 +392,11 @@
     window.clearChartSearch = function() {
         currentSearch = '';
         updateSearchBadge();
-        // Also clear the search input if it exists
         var searchInput = document.querySelector('input[name="search"]');
         if (searchInput) {
             searchInput.value = '';
-            // Trigger HTMX to refresh detections list too
-            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            // Fire the custom HTMX trigger to refresh detections list
+            searchInput.dispatchEvent(new Event('biardtz-search'));
         }
         fetchCharts(currentDays);
     };

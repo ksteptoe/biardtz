@@ -1,4 +1,5 @@
-<form id="filters" class="bg-white rounded-xl shadow-sm p-3 mb-4">
+<form id="filters" class="bg-white rounded-xl shadow-sm p-3 mb-4"
+      onsubmit="return false;">
     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         <!-- Search -->
         <div class="sm:col-span-2 md:col-span-1">
@@ -67,20 +68,23 @@
     var debounceTimer = null;
 
     function fireSearch(el) {
+        // Update detection list via HTMX
         el.dispatchEvent(new Event('biardtz-search'));
+        // Update all charts with the search term
         if (window.updateChartSearch) window.updateChartSearch(el.value);
     }
 
-    // On each keystroke: debounce for plain text, ignore for glob (wait for Enter)
+    // On each input: debounce for plain text, skip for glob (wait for Enter)
     window._biardtzSearchInput = function(el) {
         clearTimeout(debounceTimer);
-        if (globRe.test(el.value)) return;  // glob — wait for Enter
+        if (globRe.test(el.value)) return;
         debounceTimer = setTimeout(function() { fireSearch(el); }, 300);
     };
 
-    // On keyup: Enter always fires search (for both plain and glob)
+    // Enter always fires search; also prevent form submission side-effects
     window._biardtzSearchKey = function(el, evt) {
         if (evt.key === 'Enter') {
+            evt.preventDefault();
             clearTimeout(debounceTimer);
             fireSearch(el);
         }

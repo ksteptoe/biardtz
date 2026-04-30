@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.1.13
+
+- Case-insensitive glob patterns: `*owl*` now matches "Tawny Owl", "Barn Owl", etc. regardless of capitalisation (uses `UPPER(common_name) GLOB UPPER(pattern)` internally)
+- Enter-to-search for wildcard patterns: when the search contains glob characters (`* ? [ ]`), the search fires only on Enter, not on every keystroke, preventing intermediate partial patterns from triggering queries. Plain text searches still fire automatically with a 300ms debounce.
+- Charts sync with search: all charts (Detection Timeline, Daily Trend, Top Species, Activity Heatmap) properly filter when a search is active. Filter badge shows "Showing results for..." with an x to clear.
+- Form submission fix: pressing Enter no longer submits the HTML form (which was blanking the search field)
+
 ## Version 1.1.12
 
 - Bird search filters all charts: typing a search term updates Detection Timeline, Daily Trend, Top Species, Activity Heatmap, and stat banners to show only matching detections

@@ -588,6 +588,15 @@ Added search-driven chart filtering to the web dashboard. When a user types a se
 - New species-breakdown endpoints provide per-point and per-cell detail for tooltip rendering
 - Banner chart endpoints also accept the search parameter so drill-down views reflect the filter
 
+### Bird Search Improvements (v1.1.13)
+
+Refined the bird search feature with several usability and correctness fixes:
+
+- **Case-insensitive glob patterns** --- searching `*owl*` now matches "Tawny Owl", "Barn Owl", etc. regardless of capitalisation. Internally the query uses `UPPER(common_name) GLOB UPPER(pattern)` so glob metacharacters work correctly with mixed-case species names.
+- **Enter-to-search for wildcards** --- when the search term contains glob characters (`*`, `?`, `[`, `]`), the search only fires when the user presses Enter, not on every keystroke. This prevents intermediate partial patterns like `*o`, `*ow` from triggering unnecessary queries. Plain text searches continue to fire automatically with a 300ms debounce.
+- **Charts sync with search** --- all four charts (Detection Timeline, Daily Trend, Top Species, Activity Heatmap) now properly filter when a search is active. A green filter badge shows "Showing results for..." with an x button to clear. Period buttons (Today, 7 days, 30 days, All) continue to work with the filter applied.
+- **Form submission fix** --- pressing Enter in the search field no longer submits the HTML form, which was previously blanking the search field. The form now uses `onsubmit="return false;"` to prevent default submission.
+
 ---
 
 ## References

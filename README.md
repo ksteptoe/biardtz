@@ -13,7 +13,7 @@ A passive, always-on bird identification station that listens via a ReSpeaker US
 - Real-time bird ID using BirdNET with configurable confidence thresholds
 - Audio clip playback --- saves the best sample per species and plays it from the dashboard
 - Web dashboard with detection filtering, search, species leaderboard, and date range selection
-- Chart.js visualisations: detection timeline, daily trend, species frequency, and activity heatmap --- all filterable by bird search with glob pattern support
+- Chart.js visualisations: detection timeline, daily trend, species frequency, and activity heatmap --- all filterable by bird search with case-insensitive glob pattern support (Enter-to-search for wildcards, 300ms debounce for plain text)
 - Enhanced chart tooltips showing per-species breakdown on hover
 - Two-level drill-down: click a stat banner for a bar chart, click a bar to see individual detection cards
 - Health panel drawer: click the header dot for live system health (CPU, memory, disk, network, service status)
