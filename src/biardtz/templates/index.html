@@ -172,16 +172,23 @@ function toggleBannerChart(type) {
     var card = document.getElementById(cardIds[type]);
     ringClasses[type].forEach(function(c) { card.classList.add(c); });
 
+    var searchInput = document.querySelector('input[name="search"]');
+    var searchVal = searchInput ? (searchInput.value || '').trim() : '';
+    var sp = searchVal ? '&search=' + encodeURIComponent(searchVal) : '';
+
     var url, title;
     if (type === 'today') {
-        url = '/api/charts/timeline?days=0';
+        url = '/api/charts/timeline?days=0' + sp;
         title = 'Detections by Hour — Today';
     } else if (type === 'species') {
-        url = '/api/charts/species?days=1&limit=50';
+        url = '/api/charts/species?days=1&limit=50' + sp;
         title = 'Species Detected — Today';
     } else {
-        url = '/api/charts/species?days=3650&limit=50';
+        url = '/api/charts/species?days=3650&limit=50' + sp;
         title = 'Species Detected — All Time';
+    }
+    if (searchVal) {
+        title += ' (filtered: "' + searchVal + '")';
     }
 
     document.getElementById('banner-chart-title').textContent = title;

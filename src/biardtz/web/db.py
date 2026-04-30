@@ -149,20 +149,34 @@ def _utc_offset_modifier(local_tz: ZoneInfo | None) -> str:
     return f"{sign}{hours} hours"
 
 
+def _search_clause(search: str | None, params: list) -> str:
+    """Return a SQL AND clause for species name search, appending to *params*."""
+    if not search:
+        return ""
+    if _GLOB_CHARS.search(search):
+        params.append(search)
+        return " AND common_name GLOB ? "
+    params.append(f"%{search}%")
+    return " AND common_name LIKE ? "
+
+
 def detection_timeline(
     conn: sqlite3.Connection,
     days: int = 7,
     local_tz: ZoneInfo | None = None,
+    search: str | None = None,
 ) -> list[dict]:
     """Hourly detection counts for the last *days* days, in local time."""
     since = _days_ago_utc(days, local_tz)
     modifier = _utc_offset_modifier(local_tz)
+    params: list = [since]
+    search_sql = _search_clause(search, params)
     rows = conn.execute(
         f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
         "COUNT(*) AS count "
-        "FROM detections WHERE timestamp >= ? "
+        f"FROM detections WHERE timestamp >= ? {search_sql}"
         "GROUP BY hour ORDER BY hour",
-        (since,),
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -172,14 +186,18 @@ def species_frequency(
     days: int = 30,
     limit: int = 15,
     local_tz: ZoneInfo | None = None,
+    search: str | None = None,
 ) -> list[dict]:
     """Top species by detection count over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
+    params: list = [since]
+    search_sql = _search_clause(search, params)
+    params.append(limit)
     rows = conn.execute(
         "SELECT common_name, sci_name, COUNT(*) AS count "
-        "FROM detections WHERE timestamp >= ? "
+        f"FROM detections WHERE timestamp >= ? {search_sql}"
         "GROUP BY common_name ORDER BY count DESC LIMIT ?",
-        (since, limit),
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -188,16 +206,19 @@ def activity_heatmap(
     conn: sqlite3.Connection,
     days: int = 30,
     local_tz: ZoneInfo | None = None,
+    search: str | None = None,
 ) -> list[dict]:
     """Detection counts by day-of-week and hour-of-day."""
     since = _days_ago_utc(days, local_tz)
+    params: list = [since]
+    search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow, "
         "CAST(strftime('%H', timestamp) AS INTEGER) AS hour, "
         "COUNT(*) AS count "
-        "FROM detections WHERE timestamp >= ? "
+        f"FROM detections WHERE timestamp >= ? {search_sql}"
         "GROUP BY dow, hour",
-        (since,),
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -206,17 +227,81 @@ def daily_trend(
     conn: sqlite3.Connection,
     days: int = 30,
     local_tz: ZoneInfo | None = None,
+    search: str | None = None,
 ) -> list[dict]:
     """Daily detection count and unique species over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
+    params: list = [since]
+    search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT date(timestamp) AS day, COUNT(*) AS count, "
         "COUNT(DISTINCT common_name) AS species "
-        "FROM detections WHERE timestamp >= ? "
+        f"FROM detections WHERE timestamp >= ? {search_sql}"
         "GROUP BY day ORDER BY day",
-        (since,),
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def timeline_species_breakdown(
+    conn: sqlite3.Connection,
+    days: int = 7,
+    local_tz: ZoneInfo | None = None,
+    search: str | None = None,
+) -> dict[str, dict[str, int]]:
+    """Per-hour breakdown of species counts.
+
+    Returns ``{hour: {species_name: count, ...}, ...}`` for use in
+    chart tooltips showing which species were detected each hour.
+    """
+    since = _days_ago_utc(days, local_tz)
+    modifier = _utc_offset_modifier(local_tz)
+    params: list = [since]
+    search_sql = _search_clause(search, params)
+    rows = conn.execute(
+        f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
+        "common_name, COUNT(*) AS count "
+        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        "GROUP BY hour, common_name ORDER BY hour, count DESC",
+        params,
+    ).fetchall()
+    result: dict[str, dict[str, int]] = {}
+    for r in rows:
+        hour = r["hour"]
+        if hour not in result:
+            result[hour] = {}
+        result[hour][r["common_name"]] = r["count"]
+    return result
+
+
+def heatmap_species_breakdown(
+    conn: sqlite3.Connection,
+    days: int = 30,
+    local_tz: ZoneInfo | None = None,
+    search: str | None = None,
+) -> dict[str, dict[str, int]]:
+    """Per day-of-week/hour species breakdown for heatmap tooltips.
+
+    Returns ``{"dow-hour": {species_name: count, ...}, ...}``.
+    """
+    since = _days_ago_utc(days, local_tz)
+    params: list = [since]
+    search_sql = _search_clause(search, params)
+    rows = conn.execute(
+        "SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow, "
+        "CAST(strftime('%H', timestamp) AS INTEGER) AS hour, "
+        "common_name, COUNT(*) AS count "
+        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        "GROUP BY dow, hour, common_name ORDER BY dow, hour, count DESC",
+        params,
+    ).fetchall()
+    result: dict[str, dict[str, int]] = {}
+    for r in rows:
+        key = f"{r['dow']}-{r['hour']}"
+        if key not in result:
+            result[key] = {}
+        result[key][r["common_name"]] = r["count"]
+    return result
 
 
 def species_audio_map(conn: sqlite3.Connection) -> dict[str, str]:

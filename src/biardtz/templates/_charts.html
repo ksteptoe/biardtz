@@ -1,3 +1,18 @@
+<!-- Search filter badge (shown when charts are filtered) -->
+<div id="chart-search-badge" class="hidden mb-3">
+    <span class="inline-flex items-center gap-1.5 px-3 py-1 text-sm font-medium rounded-full bg-emerald-100 text-emerald-700">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        Showing results for "<span id="chart-search-term"></span>"
+        <button onclick="clearChartSearch()" class="ml-1 hover:text-emerald-900" title="Clear filter">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>
+    </span>
+</div>
+
 <!-- Period selector -->
 <div class="flex gap-2 mb-4">
     <button class="chart-period-btn px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-600 text-white" data-days="1" onclick="updateCharts(1, this)">Today</button>
@@ -47,6 +62,9 @@
     var speciesChart = null;
     var trendChart = null;
     var currentDays = 1;
+    var currentSearch = '';
+    var timelineSpeciesData = {};  // {hour: {species: count}}
+    var heatmapSpeciesData = {};   // {"dow-hour": {species: count}}
 
     function hideSkeletons() {
         document.querySelectorAll('.chart-skeleton').forEach(function(el) { el.remove(); });
@@ -58,6 +76,29 @@
         amber: 'rgba(245, 158, 11, 1)',
         amberBg: 'rgba(245, 158, 11, 0.15)',
     };
+
+    function speciesToolTipTitle(items) {
+        return items[0].label || '';
+    }
+
+    function timelineTooltipLabel(ctx) {
+        var hour = ctx.label;
+        // Look up species breakdown for this hour
+        var breakdown = timelineSpeciesData[hour];
+        if (breakdown) {
+            var lines = [];
+            var entries = Object.entries(breakdown).sort(function(a, b) { return b[1] - a[1]; });
+            for (var i = 0; i < entries.length && i < 8; i++) {
+                lines.push(entries[i][0] + ': ' + entries[i][1]);
+            }
+            if (entries.length > 8) {
+                lines.push('... +' + (entries.length - 8) + ' more');
+            }
+            lines.push('Total: ' + ctx.parsed.y);
+            return lines;
+        }
+        return 'Detections: ' + ctx.parsed.y;
+    }
 
     function initTimeline(data) {
         var ctx = document.getElementById('chart-timeline');
@@ -98,7 +139,13 @@
                 },
                 plugins: {
                     legend: { display: false },
-                    tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 8 },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        padding: 8,
+                        callbacks: {
+                            label: timelineTooltipLabel
+                        }
+                    },
                 },
             }
         });
@@ -244,30 +291,68 @@
                 } else {
                     bg = '#059669';
                 }
-                html += '<div style="background:' + bg + '; aspect-ratio:1; border-radius:2px;" title="' + days[d] + ' ' + h + ':00 — ' + count + ' detections"></div>';
+                // Build tooltip with species breakdown
+                var tipKey = d + '-' + h;
+                var tip = days[d] + ' ' + h + ':00 — ' + count + ' detections';
+                var breakdown = heatmapSpeciesData[tipKey];
+                if (breakdown) {
+                    var entries = Object.entries(breakdown).sort(function(a, b) { return b[1] - a[1]; });
+                    var speciesTip = entries.slice(0, 5).map(function(e) { return e[0] + ': ' + e[1]; }).join(', ');
+                    if (entries.length > 5) speciesTip += ', +' + (entries.length - 5) + ' more';
+                    tip += '\n' + speciesTip;
+                }
+                html += '<div style="background:' + bg + '; aspect-ratio:1; border-radius:2px;" title="' + tip.replace(/"/g, '&quot;') + '"></div>';
             }
         }
         html += '</div>';
         container.innerHTML = html;
     }
 
+    function searchParam() {
+        if (!currentSearch) return '';
+        return '&search=' + encodeURIComponent(currentSearch);
+    }
+
     function fetchCharts(days) {
         currentDays = days;
         var param = days > 0 ? '?days=' + days : '?days=3650';
+        var sp = searchParam();
         var done = 0;
-        function onDone() { if (++done >= 4) hideSkeletons(); }
-        fetch('/api/charts/timeline' + param)
+        var total = 6;  // 4 main charts + 2 breakdown endpoints
+        function onDone() { if (++done >= total) hideSkeletons(); }
+
+        // Main chart data
+        fetch('/api/charts/timeline' + param + sp)
             .then(function(r) { return r.json(); })
             .then(function(d) { initTimeline(d); onDone(); });
-        fetch('/api/charts/trend' + param)
+        fetch('/api/charts/trend' + param + sp)
             .then(function(r) { return r.json(); })
             .then(function(d) { initTrend(d); onDone(); });
-        fetch('/api/charts/species' + param + '&limit=15')
+        fetch('/api/charts/species' + param + '&limit=15' + sp)
             .then(function(r) { return r.json(); })
             .then(function(d) { initSpecies(d); onDone(); });
-        fetch('/api/charts/heatmap' + param)
+        fetch('/api/charts/heatmap' + param + sp)
             .then(function(r) { return r.json(); })
             .then(function(d) { initHeatmap(d); onDone(); });
+
+        // Species breakdown for tooltips
+        fetch('/api/charts/timeline/species' + param + sp)
+            .then(function(r) { return r.json(); })
+            .then(function(d) { timelineSpeciesData = d; onDone(); });
+        fetch('/api/charts/heatmap/species' + param + sp)
+            .then(function(r) { return r.json(); })
+            .then(function(d) { heatmapSpeciesData = d; onDone(); });
+    }
+
+    function updateSearchBadge() {
+        var badge = document.getElementById('chart-search-badge');
+        var term = document.getElementById('chart-search-term');
+        if (currentSearch) {
+            term.textContent = currentSearch;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
     }
 
     // Expose for period buttons
@@ -282,6 +367,26 @@
         btn.classList.remove('bg-stone-100', 'text-stone-600', 'hover:bg-stone-200');
         btn.classList.add('bg-emerald-600', 'text-white');
         fetchCharts(days);
+    };
+
+    // Expose for search integration
+    window.updateChartSearch = function(searchTerm) {
+        currentSearch = (searchTerm || '').trim();
+        updateSearchBadge();
+        fetchCharts(currentDays);
+    };
+
+    window.clearChartSearch = function() {
+        currentSearch = '';
+        updateSearchBadge();
+        // Also clear the search input if it exists
+        var searchInput = document.querySelector('input[name="search"]');
+        if (searchInput) {
+            searchInput.value = '';
+            // Trigger HTMX to refresh detections list too
+            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        fetchCharts(currentDays);
     };
 
     // Initial load

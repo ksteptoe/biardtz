@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.1.12
+
+- Bird search filters all charts: typing a search term updates Detection Timeline, Daily Trend, Top Species, Activity Heatmap, and stat banners to show only matching detections
+- Search supports plain text (LIKE) and glob patterns (* ? [a-h])
+- Green filter badge above charts shows active search with clear button
+- Enhanced tooltips on timeline chart and heatmap cells show per-species breakdown
+
 ## Version 1.1.11
 
 - Today banner chart bars visually dominant with pointer cursor on hover

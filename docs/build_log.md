@@ -569,6 +569,25 @@ Reworked the Today banner drill-down chart to be more useful and visually polish
 - **Nearest-element tooltip** --- hover shows a tooltip for the nearest element (bar or line), making it easy to read values without precise cursor placement.
 - **Visual refinements** --- bars are visually dominant (wider, higher z-order) and the cursor changes to a pointer when hovering over clickable bars.
 
+### Bird Search Filters Charts
+
+Added search-driven chart filtering to the web dashboard. When a user types a search term in the bird search box (e.g. "owl"), all four charts --- Detection Timeline, Daily Trend, Top Species, and Activity Heatmap --- update to show only matching detections. The three stat banners (Today, Species Today, All Time) also respect the active search filter.
+
+**Search capabilities:**
+- Plain text matching (SQL LIKE)
+- Glob patterns: `*` (any characters), `?` (single character), `[a-h]` (character ranges)
+
+**Frontend changes:**
+- A green badge appears above the charts showing the active filter text, with an x button to clear it
+- Time period buttons (Today, 7 days, 30 days, All) continue to work with the search filter applied
+- Enhanced tooltips on the Detection Timeline chart: hovering over a data point shows a species breakdown (e.g. "Barn Owl: 2, Tawny Owl: 1, Total: 3")
+- Activity Heatmap cells also show species breakdown in tooltips
+
+**Technical details:**
+- A `search` query parameter was added to all chart API endpoints (`/api/charts/timeline`, `/api/charts/species`, `/api/charts/heatmap`, `/api/charts/trend`)
+- New species-breakdown endpoints provide per-point and per-cell detail for tooltip rendering
+- Banner chart endpoints also accept the search parameter so drill-down views reflect the filter
+
 ---
 
 ## References

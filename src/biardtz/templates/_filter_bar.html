@@ -10,7 +10,8 @@
                    hx-target="#detection-results"
                    hx-include="#filters"
                    hx-trigger="keyup changed delay:300ms"
-                   hx-swap="innerHTML transition:true">
+                   hx-swap="innerHTML transition:true"
+                   oninput="clearTimeout(this._chartTimer); var v=this.value; this._chartTimer=setTimeout(function(){ if(window.updateChartSearch) updateChartSearch(v); }, 400)">
         </div>
 
         <!-- Confidence slider -->
