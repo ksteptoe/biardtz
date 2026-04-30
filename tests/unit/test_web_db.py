@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -29,15 +30,26 @@ CREATE TABLE IF NOT EXISTS detections (
 );
 """
 
-_SAMPLE_ROWS = [
-    ("2026-04-20T08:00:00", "Blue Tit", "Cyanistes caeruleus", 0.85, None, None),
-    ("2026-04-20T08:05:00", "Great Tit", "Parus major", 0.90, None, None),
-    ("2026-04-20T08:10:00", "Robin", "Erithacus rubecula", 0.75, None, None),
-    ("2026-04-20T08:15:00", "Wren", "Troglodytes troglodytes", 0.80, None, None),
-    ("2026-04-20T08:20:00", "Blackbird", "Turdus merula", 0.88, None, None),
-    ("2026-04-20T08:25:00", "Chaffinch", "Fringilla coelebs", 0.70, None, None),
-    ("2026-04-20T08:30:00", "Goldfinch", "Carduelis carduelis", 0.82, None, None),
-]
+
+def _today_at(hour: int, minute: int = 0) -> str:
+    """Return an ISO timestamp for today at the given UTC hour/minute."""
+    now = datetime.now(timezone.utc)
+    return now.replace(hour=hour, minute=minute, second=0, microsecond=0).strftime(
+        "%Y-%m-%dT%H:%M:%S"
+    )
+
+
+def _sample_rows():
+    """Generate sample rows with today's date so they always fall within a 7-day window."""
+    return [
+        (_today_at(8, 0), "Blue Tit", "Cyanistes caeruleus", 0.85, None, None),
+        (_today_at(8, 5), "Great Tit", "Parus major", 0.90, None, None),
+        (_today_at(8, 10), "Robin", "Erithacus rubecula", 0.75, None, None),
+        (_today_at(8, 15), "Wren", "Troglodytes troglodytes", 0.80, None, None),
+        (_today_at(8, 20), "Blackbird", "Turdus merula", 0.88, None, None),
+        (_today_at(8, 25), "Chaffinch", "Fringilla coelebs", 0.70, None, None),
+        (_today_at(8, 30), "Goldfinch", "Carduelis carduelis", 0.82, None, None),
+    ]
 
 
 @pytest.fixture()
@@ -50,7 +62,7 @@ def db_conn():
         "INSERT INTO detections "
         "(timestamp, common_name, sci_name, confidence, bearing, direction) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        _SAMPLE_ROWS,
+        _sample_rows(),
     )
     conn.commit()
     yield conn
@@ -175,7 +187,7 @@ class TestSpeciesListPlainSearch:
 
     def test_no_filter_returns_all(self, db_conn):
         results = species_list(db_conn)
-        assert len(results) == len(_SAMPLE_ROWS)
+        assert len(results) == 7  # all species in sample data
 
     def test_no_match_returns_empty(self, db_conn):
         results = species_list(db_conn, q="Eagle")
@@ -252,7 +264,8 @@ class TestDetectionTimeline:
         # All sample rows are in the 08:xx UTC hour
         results = detection_timeline(db_conn, days=7, local_tz=ZoneInfo("UTC"))
         assert len(results) == 1
-        assert results[0]["hour"] == "2026-04-20T08:00:00"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert results[0]["hour"] == f"{today}T08:00:00"
         assert results[0]["count"] == 7
 
     def test_timeline_shifts_hour_for_positive_offset(self, db_conn):
@@ -261,8 +274,9 @@ class TestDetectionTimeline:
         results = detection_timeline(db_conn, days=7, local_tz=tz)
         assert len(results) == 1
         hour = results[0]["hour"]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         # Should be shifted forward from 08:00 UTC
-        assert hour > "2026-04-20T08:00:00"
+        assert hour > f"{today}T08:00:00"
 
     def test_timeline_shifts_hour_for_negative_offset(self, db_conn):
         # UTC-5: 08:xx UTC becomes 03:xx local
@@ -270,5 +284,6 @@ class TestDetectionTimeline:
         results = detection_timeline(db_conn, days=7, local_tz=tz)
         assert len(results) == 1
         hour = results[0]["hour"]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         # Should be shifted back from 08:00 UTC
-        assert hour < "2026-04-20T08:00:00"
+        assert hour < f"{today}T08:00:00"
