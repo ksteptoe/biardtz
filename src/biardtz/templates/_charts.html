@@ -309,10 +309,24 @@
     }
 
     function getSearchTerm() {
-        // Always read from the DOM so charts stay in sync with the input
-        var el = document.querySelector('input[name="search"]');
-        var val = el ? (el.value || '').trim() : '';
-        // Keep currentSearch in sync
+        // Find the visible search input (there are two — mobile and desktop)
+        var inputs = document.querySelectorAll('input[name="search"]');
+        var val = '';
+        for (var i = 0; i < inputs.length; i++) {
+            if (inputs[i].offsetParent !== null && inputs[i].value) {
+                val = inputs[i].value.trim();
+                break;
+            }
+        }
+        // Fallback: check all inputs for any non-empty value
+        if (!val) {
+            for (var i = 0; i < inputs.length; i++) {
+                if (inputs[i].value && inputs[i].value.trim()) {
+                    val = inputs[i].value.trim();
+                    break;
+                }
+            }
+        }
         if (val !== currentSearch) {
             currentSearch = val;
             updateSearchBadge();
@@ -392,12 +406,11 @@
     window.clearChartSearch = function() {
         currentSearch = '';
         updateSearchBadge();
-        var searchInput = document.querySelector('input[name="search"]');
-        if (searchInput) {
-            searchInput.value = '';
-            // Fire the custom HTMX trigger to refresh detections list
-            searchInput.dispatchEvent(new Event('biardtz-search'));
-        }
+        // Clear ALL search inputs (mobile + desktop) and trigger HTMX refresh
+        document.querySelectorAll('input[name="search"]').forEach(function(el) {
+            el.value = '';
+            el.dispatchEvent(new Event('biardtz-search'));
+        });
         fetchCharts(currentDays);
     };
 

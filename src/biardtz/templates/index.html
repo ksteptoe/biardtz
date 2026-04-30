@@ -172,8 +172,10 @@ function toggleBannerChart(type) {
     var card = document.getElementById(cardIds[type]);
     ringClasses[type].forEach(function(c) { card.classList.add(c); });
 
-    var searchInput = document.querySelector('input[name="search"]');
-    var searchVal = searchInput ? (searchInput.value || '').trim() : '';
+    var searchVal = '';
+    document.querySelectorAll('input[name="search"]').forEach(function(el) {
+        if (!searchVal && el.value && el.value.trim()) searchVal = el.value.trim();
+    });
     var sp = searchVal ? '&search=' + encodeURIComponent(searchVal) : '';
 
     var url, title;
