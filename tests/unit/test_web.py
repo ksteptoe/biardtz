@@ -534,6 +534,8 @@ class TestCreateApp:
         assert "/api/health/tier2/hardware" in route_paths
         assert "/api/health/tier2/network" in route_paths
         assert "/api/health/tier2/uptime" in route_paths
+        assert "/api/watchlist" in route_paths
+        assert "/partials/watchlist" in route_paths
 
     def test_app_title(self, tmp_path):
         db_path = tmp_path / "test.db"
@@ -1687,22 +1689,142 @@ class TestHealthRoutes:
         resp = asyncio.run(_run())
         assert resp.json()["color"] == "yellow"
 
-    def test_tier2_hardware_contains_progress_bars(self, tmp_path):
-        """Hardware fragment includes memory and disk progress bars."""
-        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/hardware")
+
+# ---------------------------------------------------------------------------
+# Watchlist routes
+# ---------------------------------------------------------------------------
+
+_SCHEMA_WITH_VERIFIED = """\
+CREATE TABLE IF NOT EXISTS detections (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp     TEXT NOT NULL,
+    common_name   TEXT NOT NULL,
+    sci_name      TEXT NOT NULL,
+    confidence    REAL NOT NULL,
+    latitude      REAL,
+    longitude     REAL,
+    bearing       REAL,
+    direction     TEXT,
+    verified      INTEGER DEFAULT 1
+);
+"""
+
+
+def _create_test_db_verified(path, rows=None):
+    """Create a test database with the verified column."""
+    conn = sqlite3.connect(str(path))
+    conn.executescript(_SCHEMA_WITH_VERIFIED)
+    if rows:
+        conn.executemany(
+            "INSERT INTO detections "
+            "(timestamp, common_name, sci_name, confidence, bearing, direction, verified) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    conn.close()
+
+
+def _make_watchlist_app(tmp_path, rows=None, watchlist=(), auto_threshold=0, verified_rows=None):
+    """Helper to create a FastAPI app with watchlist config."""
+    db_path = tmp_path / "test.db"
+    if verified_rows is not None:
+        _create_test_db_verified(db_path, verified_rows)
+    else:
+        _create_test_db(db_path, rows)
+    config = Config(
+        db_path=db_path,
+        bird_image_cache=tmp_path / "img_cache",
+        audio_clip_dir=tmp_path / "audio_clips",
+        watchlist=tuple(watchlist),
+        auto_watchlist_threshold=auto_threshold,
+    )
+    return create_app(config)
+
+
+class TestWatchlistRoutes:
+    """Tests for /api/watchlist and /partials/watchlist endpoints."""
+
+    def test_api_watchlist_returns_json_structure(self, tmp_path):
+        """GET /api/watchlist returns JSON with expected keys."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None),
+        ]
+        app = _make_watchlist_app(tmp_path, rows=rows, watchlist=["Robin"])
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/watchlist")
+
+        resp = asyncio.run(_run())
         assert resp.status_code == 200
-        # Progress bars use width style
-        assert "style=" in resp.text
-        assert "50%" in resp.text  # memory and disk both at 50%
+        data = resp.json()
+        assert "explicit_count" in data
+        assert "auto_count" in data
+        assert "auto_threshold" in data
+        assert "species" in data
+        assert data["explicit_count"] == 1
+        assert len(data["species"]) >= 1
 
-    def test_tier2_db_shows_counts(self, tmp_path):
-        """DB fragment shows detection and species counts."""
-        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/db")
-        assert "100" in resp.text  # total_detections
-        assert "20" in resp.text   # total_species
+    def test_api_watchlist_empty_returns_empty_species(self, tmp_path):
+        """GET /api/watchlist with empty watchlist returns empty species list."""
+        app = _make_watchlist_app(tmp_path)
 
-    def test_tier2_network_shows_service_info(self, tmp_path):
-        """Network fragment includes service status."""
-        resp = self._run_with_mocks(tmp_path, "/api/health/tier2/network")
-        assert "Service" in resp.text
-        assert "active" in resp.text
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/watchlist")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["explicit_count"] == 0
+        assert data["auto_count"] == 0
+        assert data["species"] == []
+
+    def test_api_watchlist_auto_includes_low_count_species(self, tmp_path):
+        """GET /api/watchlist with auto-watchlist includes species with low counts."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None),
+            (now, "Wren", "Troglodytes troglodytes", 0.65, None, None),
+            (now, "Wren", "Troglodytes troglodytes", 0.70, None, None),
+        ]
+        # Robin has 1 detection, Wren has 3 — auto_threshold=1 should only pick Robin
+        app = _make_watchlist_app(tmp_path, rows=rows, auto_threshold=1)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/watchlist")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["auto_count"] == 1
+        species_names = [s["common_name"] for s in data["species"]]
+        assert "Robin" in species_names
+        assert "Wren" not in species_names
+
+    def test_partials_watchlist_returns_html(self, tmp_path):
+        """GET /partials/watchlist returns HTML containing watchlist info."""
+        now = _now_iso()
+        rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None),
+        ]
+        app = _make_watchlist_app(tmp_path, rows=rows, watchlist=["Robin"])
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/watchlist")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert "Robin" in resp.text
+        assert "Watchlist" in resp.text

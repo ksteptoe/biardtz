@@ -174,6 +174,97 @@ def status():
 
 
 @cli.command()
+@click.option("--db-path", type=click.Path(), default="/mnt/ssd/detections.db", show_default=True)
+@click.option("--watchlist", type=str, default=None,
+              help="Comma-separated species requiring verification")
+@click.option("--watchlist-file", type=click.Path(exists=True), default=None,
+              help="Text file with one species name per line")
+@click.option("--auto-watchlist", type=int, default=0, show_default=True,
+              help="Auto-verify species with <= N total detections (0=off)")
+def watchlist(db_path, watchlist, watchlist_file, auto_watchlist):
+    """Show the active verification watchlist with detection stats."""
+    import sqlite3
+
+    from .web import db
+
+    # Build config just for watchlist fields
+    wl = tuple(s.strip() for s in watchlist.split(",") if s.strip()) if watchlist else ()
+    cfg = Config(
+        db_path=Path(db_path),
+        watchlist=wl,
+        watchlist_file=Path(watchlist_file) if watchlist_file else None,
+        auto_watchlist_threshold=auto_watchlist,
+    )
+    explicit = list(cfg.watchlist)
+
+    db_file = Path(db_path)
+    if not db_file.exists():
+        click.echo(f"Database not found: {db_path}")
+        raise SystemExit(1)
+
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+
+    # Auto-watchlist
+    auto: list[str] = []
+    if auto_watchlist > 0:
+        rows = conn.execute(
+            "SELECT common_name FROM detections "
+            "GROUP BY common_name HAVING COUNT(*) <= ?",
+            (auto_watchlist,),
+        ).fetchall()
+        auto = sorted({r["common_name"] for r in rows} - set(explicit))
+
+    all_species = explicit + auto
+    if not all_species:
+        click.echo("No species on watchlist.")
+        click.echo("Use --watchlist, --watchlist-file, or --auto-watchlist to configure.")
+        conn.close()
+        return
+
+    stats = db.watchlist_stats(conn, all_species)
+    conn.close()
+
+    # Display
+    if explicit:
+        click.echo(click.style("Explicit watchlist:", bold=True))
+        if cfg.watchlist_file:
+            click.echo(f"  (from {cfg.watchlist_file})")
+        for entry in stats:
+            if entry["common_name"] in set(explicit):
+                _print_watchlist_entry(entry)
+
+    if auto:
+        click.echo(click.style(f"\nAuto-watchlist (<=  {auto_watchlist} detections):", bold=True))
+        for entry in stats:
+            if entry["common_name"] not in set(explicit):
+                _print_watchlist_entry(entry)
+
+    click.echo(f"\nTotal: {len(all_species)} species watched")
+
+
+def _print_watchlist_entry(entry: dict) -> None:
+    total = entry["total"]
+    verified = entry["verified"]
+    unverified = total - verified
+    name = entry["common_name"]
+    if total == 0:
+        detail = click.style("no detections", fg="white", dim=True)
+    elif unverified > 0:
+        detail = (
+            f"{total} detections "
+            f"({click.style(str(verified), fg='green')} verified, "
+            f"{click.style(str(unverified), fg='yellow')} unverified)"
+        )
+    else:
+        detail = f"{total} detections ({click.style(str(verified), fg='green')} verified)"
+    last = ""
+    if entry.get("last_seen"):
+        last = f"  last: {entry['last_seen'][:16]}"
+    click.echo(f"  {name:<30s} {detail}{last}")
+
+
+@cli.command()
 def diagnose():
     """Diagnose connection and pipeline issues."""
     import os

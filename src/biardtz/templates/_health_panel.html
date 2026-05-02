@@ -146,4 +146,17 @@
             <div class="text-right">{{ tier1.config.timezone }}</div>
         </div>
     </div>
+
+    {# ── Watchlist — loaded async ── #}
+    <div id="health-watchlist" class="bg-white rounded-lg shadow-sm border border-stone-200 p-3"
+         hx-get="/partials/watchlist" hx-trigger="load" hx-swap="innerHTML">
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-stone-300 animate-pulse"></div>
+            <h3 class="font-semibold text-sm text-stone-700">Watchlist</h3>
+        </div>
+        <div class="space-y-2">
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-2/3"></div>
+            <div class="h-3 bg-stone-100 rounded animate-pulse w-1/2"></div>
+        </div>
+    </div>
 </div>

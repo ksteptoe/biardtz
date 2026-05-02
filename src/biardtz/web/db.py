@@ -380,3 +380,43 @@ def species_list(conn: sqlite3.Connection, q: str | None = None) -> list[dict]:
             "ORDER BY common_name",
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def watchlist_stats(
+    conn: sqlite3.Connection,
+    species: list[str],
+) -> list[dict]:
+    """Return detection/verified counts for a list of species.
+
+    Each item: ``{common_name, sci_name, total, verified, last_seen}``.
+    Species with no detections are still included (zeroed).
+    """
+    if not species:
+        return []
+    has_verified = _has_column(conn, "verified")
+    placeholders = ",".join("?" * len(species))
+    if has_verified:
+        rows = conn.execute(
+            "SELECT common_name, sci_name, COUNT(*) AS total, "
+            "SUM(verified) AS verified, MAX(timestamp) AS last_seen "
+            f"FROM detections WHERE common_name IN ({placeholders}) "
+            "GROUP BY common_name ORDER BY common_name",
+            species,
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT common_name, sci_name, COUNT(*) AS total, "
+            "COUNT(*) AS verified, MAX(timestamp) AS last_seen "
+            f"FROM detections WHERE common_name IN ({placeholders}) "
+            "GROUP BY common_name ORDER BY common_name",
+            species,
+        ).fetchall()
+    result = {r["common_name"]: dict(r) for r in rows}
+    # Include species with zero detections
+    for sp in species:
+        if sp not in result:
+            result[sp] = {
+                "common_name": sp, "sci_name": "", "total": 0,
+                "verified": 0, "last_seen": None,
+            }
+    return [result[sp] for sp in sorted(result)]

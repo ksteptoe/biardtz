@@ -303,6 +303,109 @@ class TestCliDiagnose:
         assert "Restart" in result.output
 
 
+class TestCliWatchlist:
+    """Tests for the ``biardtz watchlist`` subcommand."""
+
+    def _create_db(self, path, rows=None):
+        """Create a test database at the given path."""
+        import sqlite3
+
+        conn = sqlite3.connect(str(path))
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS detections ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "timestamp TEXT NOT NULL, "
+            "common_name TEXT NOT NULL, "
+            "sci_name TEXT NOT NULL, "
+            "confidence REAL NOT NULL, "
+            "latitude REAL, longitude REAL, "
+            "bearing REAL, direction TEXT, "
+            "verified INTEGER DEFAULT 1)"
+        )
+        if rows:
+            conn.executemany(
+                "INSERT INTO detections "
+                "(timestamp, common_name, sci_name, confidence, bearing, direction, verified) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+        conn.commit()
+        conn.close()
+
+    def test_explicit_watchlist_shows_species(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        self._create_db(db_path, [
+            ("2026-05-01T08:00:00", "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            ("2026-05-01T08:05:00", "Robin", "Erithacus rubecula", 0.80, None, None, 1),
+        ])
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "watchlist",
+            "--db-path", str(db_path),
+            "--watchlist", "Robin",
+        ])
+        assert result.exit_code == 0
+        assert "Robin" in result.output
+        assert "2 detections" in result.output
+
+    def test_empty_watchlist_shows_message(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        self._create_db(db_path, [])
+        runner = CliRunner()
+        result = runner.invoke(cli, ["watchlist", "--db-path", str(db_path)])
+        assert result.exit_code == 0
+        assert "No species on watchlist" in result.output
+
+    def test_auto_watchlist(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        self._create_db(db_path, [
+            ("2026-05-01T08:00:00", "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            ("2026-05-01T08:05:00", "Wren", "Troglodytes troglodytes", 0.80, None, None, 1),
+            ("2026-05-01T08:10:00", "Wren", "Troglodytes troglodytes", 0.75, None, None, 1),
+            ("2026-05-01T08:15:00", "Wren", "Troglodytes troglodytes", 0.70, None, None, 1),
+        ])
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "watchlist",
+            "--db-path", str(db_path),
+            "--auto-watchlist", "1",
+        ])
+        assert result.exit_code == 0
+        assert "Robin" in result.output
+        assert "Auto-watchlist" in result.output
+        # Wren has 3 detections, should NOT be in auto-watchlist with threshold 1
+        # But it may appear if threshold is high enough. With threshold=1, only Robin (1 det) qualifies
+        assert "1 species" in result.output
+
+    def test_watchlist_file(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        self._create_db(db_path, [
+            ("2026-05-01T08:00:00", "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+        ])
+        wf = tmp_path / "watchlist.txt"
+        wf.write_text("Robin\n# comment\nPenguin\n")
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "watchlist",
+            "--db-path", str(db_path),
+            "--watchlist-file", str(wf),
+        ])
+        assert result.exit_code == 0
+        assert "Robin" in result.output
+        assert "Penguin" in result.output
+        assert "no detections" in result.output  # Penguin has none
+
+    def test_db_not_found(self, tmp_path):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "watchlist",
+            "--db-path", str(tmp_path / "nonexistent.db"),
+            "--watchlist", "Robin",
+        ])
+        assert result.exit_code == 1
+        assert "Database not found" in result.output
+
+
 class TestCliSignalHandling:
     """CLI should exit cleanly (code 0) when terminated by SIGTERM/SIGINT."""
 

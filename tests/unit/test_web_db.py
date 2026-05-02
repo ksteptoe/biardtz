@@ -16,6 +16,7 @@ from biardtz.web.db import (
     species_frequency,
     species_list,
     species_stats,
+    watchlist_stats,
 )
 
 _SCHEMA = """\
@@ -424,3 +425,66 @@ class TestChartQueriesVerified:
         results = detection_timeline(db_conn, days=7, local_tz=ZoneInfo("UTC"))
         total = sum(r["count"] for r in results)
         assert total == 7
+
+
+# ---------------------------------------------------------------------------
+# watchlist_stats
+# ---------------------------------------------------------------------------
+
+
+class TestWatchlistStats:
+    """Tests for watchlist_stats()."""
+
+    def test_empty_species_list_returns_empty(self, db_conn):
+        """Passing an empty species list returns an empty list."""
+        result = watchlist_stats(db_conn, [])
+        assert result == []
+
+    def test_returns_correct_counts(self, db_conn):
+        """Returns correct total count for known species."""
+        result = watchlist_stats(db_conn, ["Blue Tit"])
+        assert len(result) == 1
+        assert result[0]["common_name"] == "Blue Tit"
+        assert result[0]["sci_name"] == "Cyanistes caeruleus"
+        assert result[0]["total"] == 1
+        assert result[0]["last_seen"] is not None
+
+    def test_species_with_no_detections_included_with_zeros(self, db_conn):
+        """Species not in the DB should still appear with zeroed entries."""
+        result = watchlist_stats(db_conn, ["Penguin"])
+        assert len(result) == 1
+        assert result[0]["common_name"] == "Penguin"
+        assert result[0]["sci_name"] == ""
+        assert result[0]["total"] == 0
+        assert result[0]["verified"] == 0
+        assert result[0]["last_seen"] is None
+
+    def test_multiple_species_mixed(self, db_conn):
+        """Mix of known and unknown species returns correct results."""
+        result = watchlist_stats(db_conn, ["Blue Tit", "Penguin", "Robin"])
+        assert len(result) == 3
+        names = [r["common_name"] for r in result]
+        assert names == ["Blue Tit", "Penguin", "Robin"]
+        # Blue Tit and Robin exist, Penguin does not
+        assert result[0]["total"] == 1
+        assert result[1]["total"] == 0
+        assert result[2]["total"] == 1
+
+    def test_backward_compat_no_verified_column(self, db_conn):
+        """DB without verified column returns total == verified."""
+        result = watchlist_stats(db_conn, ["Blue Tit"])
+        assert result[0]["total"] == result[0]["verified"]
+
+    def test_verified_counts_with_verified_column(self, db_conn_verified):
+        """DB with verified column returns separate total and verified counts."""
+        result = watchlist_stats(db_conn_verified, ["Robin"])
+        assert len(result) == 1
+        # Robin has 1 detection, verified=0
+        assert result[0]["total"] == 1
+        assert result[0]["verified"] == 0
+
+    def test_verified_species_counts(self, db_conn_verified):
+        """Verified species show correct verified count."""
+        result = watchlist_stats(db_conn_verified, ["Blue Tit"])
+        assert result[0]["total"] == 1
+        assert result[0]["verified"] == 1

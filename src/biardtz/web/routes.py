@@ -321,6 +321,41 @@ def register(app: FastAPI) -> None:
         finally:
             conn.close()
 
+    @app.get("/api/watchlist")
+    async def api_watchlist(request: Request):
+        """Return watchlist species with detection/verified counts."""
+        config = request.app.state.config
+        conn = db.get_connection(config.db_path)
+        try:
+            # Build combined watchlist: explicit + auto
+            explicit = list(config.watchlist)
+            auto: list[str] = []
+            if config.auto_watchlist_threshold > 0:
+                auto_set = set()
+                rows = conn.execute(
+                    "SELECT common_name, COUNT(*) AS cnt FROM detections "
+                    "GROUP BY common_name HAVING cnt <= ?",
+                    (config.auto_watchlist_threshold,),
+                ).fetchall()
+                auto_set = {r["common_name"] for r in rows}
+                auto = sorted(auto_set - set(explicit))
+            all_species = explicit + auto
+            stats = db.watchlist_stats(conn, all_species)
+        finally:
+            conn.close()
+        # Tag each entry with its source
+        explicit_set = set(explicit)
+        for entry in stats:
+            entry["source"] = "explicit" if entry["common_name"] in explicit_set else "auto"
+        return JSONResponse({
+            "explicit_count": len(explicit),
+            "auto_count": len(auto),
+            "auto_threshold": config.auto_watchlist_threshold,
+            "verify_min_detections": config.verify_min_detections,
+            "verify_window_seconds": config.verify_window_seconds,
+            "species": stats,
+        })
+
     @app.get("/api/audio/{filename}")
     async def audio_clip(request: Request, filename: str):
         if "/" in filename or "\\" in filename or ".." in filename:
@@ -508,4 +543,83 @@ def register(app: FastAPI) -> None:
         lines.append('<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600">')
         lines.append(f'<div>System</div><div class="text-right font-mono">{check["detail"]}</div>')
         lines.append('</div>')
+        return HTMLResponse("\n".join(lines))
+
+    @app.get("/partials/watchlist", response_class=HTMLResponse)
+    async def partial_watchlist(request: Request):
+        """Watchlist panel fragment for the health drawer."""
+        config = request.app.state.config
+        conn = db.get_connection(config.db_path)
+        try:
+            explicit = list(config.watchlist)
+            auto: list[str] = []
+            if config.auto_watchlist_threshold > 0:
+                rows = conn.execute(
+                    "SELECT common_name FROM detections "
+                    "GROUP BY common_name HAVING COUNT(*) <= ?",
+                    (config.auto_watchlist_threshold,),
+                ).fetchall()
+                auto = sorted({r["common_name"] for r in rows} - set(explicit))
+            all_species = explicit + auto
+            stats = db.watchlist_stats(conn, all_species) if all_species else []
+        finally:
+            conn.close()
+
+        explicit_set = set(explicit)
+        lines: list[str] = []
+        lines.append('<div class="flex items-center gap-2 mb-2">')
+        color = "amber" if all_species else "stone"
+        lines.append(f'<div class="w-2.5 h-2.5 rounded-full bg-{color}-400"></div>')
+        lines.append('<h3 class="font-semibold text-sm text-stone-700">Watchlist</h3>')
+        if all_species:
+            lines.append(
+                f'<span class="text-xs text-stone-400 ml-auto">{len(all_species)} species</span>'
+            )
+        lines.append('</div>')
+
+        if not all_species:
+            lines.append(
+                '<div class="text-xs text-stone-400">No watchlist configured. '
+                'Use --watchlist or --auto-watchlist.</div>'
+            )
+            return HTMLResponse("\n".join(lines))
+
+        lines.append(
+            f'<div class="text-xs text-stone-400 mb-2">'
+            f'Require {config.verify_min_detections}x in '
+            f'{int(config.verify_window_seconds)}s to verify</div>'
+        )
+
+        for entry in stats:
+            name = entry["common_name"]
+            total = entry["total"]
+            verified = entry["verified"]
+            unverified = total - verified
+            source = "explicit" if name in explicit_set else "auto"
+            badge_color = "emerald" if source == "explicit" else "sky"
+
+            lines.append(
+                '<div class="flex items-center justify-between py-1 '
+                'border-b border-stone-100 last:border-0">'
+            )
+            lines.append(
+                f'<div class="flex items-center gap-1.5 min-w-0">'
+                f'<span class="inline-block px-1 py-0.5 rounded text-[9px] '
+                f'font-medium bg-{badge_color}-100 text-{badge_color}-700">'
+                f'{source}</span>'
+                f'<span class="text-xs font-medium truncate">{name}</span>'
+                f'</div>'
+            )
+            if total == 0:
+                detail = '<span class="text-stone-300">-</span>'
+            else:
+                parts = []
+                if verified:
+                    parts.append(f'<span class="text-emerald-600">{verified}</span>')
+                if unverified:
+                    parts.append(f'<span class="text-amber-600">{unverified}?</span>')
+                detail = f'<span class="text-xs font-mono">{"/".join(parts)}</span>'
+            lines.append(f'<div class="flex-shrink-0 ml-2">{detail}</div>')
+            lines.append('</div>')
+
         return HTMLResponse("\n".join(lines))
