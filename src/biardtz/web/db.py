@@ -96,12 +96,14 @@ def species_stats(
     conn: sqlite3.Connection,
     local_tz: ZoneInfo | None = None,
     search: str | None = None,
+    exclude_species: set[str] | None = None,
 ) -> dict:
     """Today's and all-time stats + leaderboard.
 
     If *local_tz* is provided, "today" is calculated in that timezone.
     Otherwise falls back to UTC.  When *search* is given the leaderboard
     and counts are filtered to matching species only.
+    *exclude_species* removes watchlisted species from counts/leaderboard.
     """
     if local_tz is not None:
         today_start = _today_start_utc(local_tz)
@@ -120,21 +122,25 @@ def species_stats(
             search_params = [f"%{search}%"]
 
     verified_sql = _verified_clause(conn)
+    excl_params: list = []
+    excl_sql = _exclusion_clause(exclude_species, excl_params)
 
     # Today's counts (using local timezone boundary)
     row = conn.execute(
         "SELECT COUNT(*) as count, COUNT(DISTINCT common_name) as species "
-        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}",
-        [today_start] + search_params,
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{excl_sql}{search_sql}",
+        [today_start] + excl_params + search_params,
     ).fetchone()
     today_count = row["count"]
     today_species = row["species"]
 
     # All-time unique species
-    if search_sql:
+    all_params = list(excl_params) + list(search_params)
+    if search_sql or excl_sql:
         row = conn.execute(
-            f"SELECT COUNT(DISTINCT common_name) as total FROM detections WHERE 1=1 {verified_sql}{search_sql}",
-            search_params,
+            "SELECT COUNT(DISTINCT common_name) as total FROM detections "
+            f"WHERE 1=1 {verified_sql}{excl_sql}{search_sql}",
+            all_params,
         ).fetchone()
     else:
         row = conn.execute(
@@ -143,12 +149,12 @@ def species_stats(
     all_time_species = row["total"]
 
     # Leaderboard (all-time, top 15)
-    if search_sql:
+    if search_sql or excl_sql:
         rows = conn.execute(
             "SELECT common_name, sci_name, COUNT(*) as count "
-            f"FROM detections WHERE 1=1 {verified_sql}{search_sql} GROUP BY common_name "
+            f"FROM detections WHERE 1=1 {verified_sql}{excl_sql}{search_sql} GROUP BY common_name "
             "ORDER BY count DESC LIMIT 15",
-            search_params,
+            all_params,
         ).fetchall()
     else:
         rows = conn.execute(
@@ -200,22 +206,33 @@ def _verified_clause(conn: sqlite3.Connection) -> str:
     return " AND verified = 1 " if _has_column(conn, "verified") else ""
 
 
+def _exclusion_clause(exclude_species: set[str] | None, params: list) -> str:
+    """Return 'AND common_name NOT IN (?,?...)' if species to exclude, else ''."""
+    if not exclude_species:
+        return ""
+    placeholders = ",".join("?" * len(exclude_species))
+    params.extend(sorted(exclude_species))
+    return f" AND common_name NOT IN ({placeholders}) "
+
+
 def detection_timeline(
     conn: sqlite3.Connection,
     days: int = 7,
     local_tz: ZoneInfo | None = None,
     search: str | None = None,
+    exclude_species: set[str] | None = None,
 ) -> list[dict]:
     """Hourly detection counts for the last *days* days, in local time."""
     since = _days_ago_utc(days, local_tz)
     modifier = _utc_offset_modifier(local_tz)
     verified_sql = _verified_clause(conn)
     params: list = [since]
+    excl_sql = _exclusion_clause(exclude_species, params)
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
         "COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{excl_sql}{search_sql}"
         "GROUP BY hour ORDER BY hour",
         params,
     ).fetchall()
@@ -228,16 +245,18 @@ def species_frequency(
     limit: int = 15,
     local_tz: ZoneInfo | None = None,
     search: str | None = None,
+    exclude_species: set[str] | None = None,
 ) -> list[dict]:
     """Top species by detection count over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
     verified_sql = _verified_clause(conn)
     params: list = [since]
+    excl_sql = _exclusion_clause(exclude_species, params)
     search_sql = _search_clause(search, params)
     params.append(limit)
     rows = conn.execute(
         "SELECT common_name, sci_name, COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{excl_sql}{search_sql}"
         "GROUP BY common_name ORDER BY count DESC LIMIT ?",
         params,
     ).fetchall()
@@ -249,17 +268,19 @@ def activity_heatmap(
     days: int = 30,
     local_tz: ZoneInfo | None = None,
     search: str | None = None,
+    exclude_species: set[str] | None = None,
 ) -> list[dict]:
     """Detection counts by day-of-week and hour-of-day."""
     since = _days_ago_utc(days, local_tz)
     verified_sql = _verified_clause(conn)
     params: list = [since]
+    excl_sql = _exclusion_clause(exclude_species, params)
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow, "
         "CAST(strftime('%H', timestamp) AS INTEGER) AS hour, "
         "COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{excl_sql}{search_sql}"
         "GROUP BY dow, hour",
         params,
     ).fetchall()
@@ -271,16 +292,18 @@ def daily_trend(
     days: int = 30,
     local_tz: ZoneInfo | None = None,
     search: str | None = None,
+    exclude_species: set[str] | None = None,
 ) -> list[dict]:
     """Daily detection count and unique species over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
     verified_sql = _verified_clause(conn)
     params: list = [since]
+    excl_sql = _exclusion_clause(exclude_species, params)
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT date(timestamp) AS day, COUNT(*) AS count, "
         "COUNT(DISTINCT common_name) AS species "
-        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{excl_sql}{search_sql}"
         "GROUP BY day ORDER BY day",
         params,
     ).fetchall()
@@ -292,6 +315,7 @@ def timeline_species_breakdown(
     days: int = 7,
     local_tz: ZoneInfo | None = None,
     search: str | None = None,
+    exclude_species: set[str] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Per-hour breakdown of species counts.
 
@@ -302,11 +326,12 @@ def timeline_species_breakdown(
     modifier = _utc_offset_modifier(local_tz)
     verified_sql = _verified_clause(conn)
     params: list = [since]
+    excl_sql = _exclusion_clause(exclude_species, params)
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
         "common_name, COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{excl_sql}{search_sql}"
         "GROUP BY hour, common_name ORDER BY hour, count DESC",
         params,
     ).fetchall()
@@ -324,6 +349,7 @@ def heatmap_species_breakdown(
     days: int = 30,
     local_tz: ZoneInfo | None = None,
     search: str | None = None,
+    exclude_species: set[str] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Per day-of-week/hour species breakdown for heatmap tooltips.
 
@@ -332,12 +358,13 @@ def heatmap_species_breakdown(
     since = _days_ago_utc(days, local_tz)
     verified_sql = _verified_clause(conn)
     params: list = [since]
+    excl_sql = _exclusion_clause(exclude_species, params)
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow, "
         "CAST(strftime('%H', timestamp) AS INTEGER) AS hour, "
         "common_name, COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{excl_sql}{search_sql}"
         "GROUP BY dow, hour, common_name ORDER BY dow, hour, count DESC",
         params,
     ).fetchall()

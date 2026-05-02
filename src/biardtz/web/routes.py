@@ -37,14 +37,36 @@ def register(app: FastAPI) -> None:
             det["audio_file"] = audio_map.get(det["common_name"])
         return detections
 
+    def _current_watchlist(config, conn) -> set[str]:
+        """Build the combined explicit + auto watchlist from config and DB."""
+        result = set(config.watchlist)
+        if config.auto_watchlist_threshold > 0:
+            rows = conn.execute(
+                "SELECT common_name FROM detections "
+                "GROUP BY common_name HAVING COUNT(*) <= ?",
+                (config.auto_watchlist_threshold,),
+            ).fetchall()
+            result |= {r["common_name"] for r in rows}
+        return result
+
+    def _apply_watchlist_override(detections: list[dict], watchlisted: set[str]) -> None:
+        """Mark all detections of watchlisted species as unverified (display-time)."""
+        if not watchlisted:
+            return
+        for det in detections:
+            if det["common_name"] in watchlisted:
+                det["verified"] = 0
+
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             detections = db.recent_detections(conn, limit=20)
             _attach_audio(detections, conn)
-            stats = db.species_stats(conn, config.tz)
+            _apply_watchlist_override(detections, watchlisted)
+            stats = db.species_stats(conn, config.tz, exclude_species=watchlisted)
         finally:
             conn.close()
         filters = {"search": None, "min_confidence": None, "date_from": None, "date_to": None}
@@ -77,6 +99,7 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             detections = db.recent_detections(
                 conn,
                 limit=limit,
@@ -88,6 +111,7 @@ def register(app: FastAPI) -> None:
                 search=search,
             )
             _attach_audio(detections, conn)
+            _apply_watchlist_override(detections, watchlisted)
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
@@ -104,7 +128,8 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            stats = db.species_stats(conn, config.tz, search=search)
+            watchlisted = _current_watchlist(config, conn)
+            stats = db.species_stats(conn, config.tz, search=search, exclude_species=watchlisted)
         finally:
             conn.close()
         return request.app.state.templates.TemplateResponse(
@@ -194,9 +219,10 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             data = _set_cache(
                 key,
-                db.detection_timeline(conn, days=days, local_tz=config.tz, search=search),
+                db.detection_timeline(conn, days=days, local_tz=config.tz, search=search, exclude_species=watchlisted),
             )
         finally:
             conn.close()
@@ -216,9 +242,13 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             data = _set_cache(
                 key,
-                db.timeline_species_breakdown(conn, days=days, local_tz=config.tz, search=search),
+                db.timeline_species_breakdown(
+                    conn, days=days, local_tz=config.tz,
+                    search=search, exclude_species=watchlisted,
+                ),
             )
         finally:
             conn.close()
@@ -238,9 +268,13 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             data = _set_cache(
                 key,
-                db.species_frequency(conn, days=days, limit=limit, local_tz=config.tz, search=search),
+                db.species_frequency(
+                    conn, days=days, limit=limit, local_tz=config.tz,
+                    search=search, exclude_species=watchlisted,
+                ),
             )
         finally:
             conn.close()
@@ -259,9 +293,10 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             data = _set_cache(
                 key,
-                db.activity_heatmap(conn, days=days, local_tz=config.tz, search=search),
+                db.activity_heatmap(conn, days=days, local_tz=config.tz, search=search, exclude_species=watchlisted),
             )
         finally:
             conn.close()
@@ -281,9 +316,13 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             data = _set_cache(
                 key,
-                db.heatmap_species_breakdown(conn, days=days, local_tz=config.tz, search=search),
+                db.heatmap_species_breakdown(
+                    conn, days=days, local_tz=config.tz,
+                    search=search, exclude_species=watchlisted,
+                ),
             )
         finally:
             conn.close()
@@ -302,9 +341,10 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             data = _set_cache(
                 key,
-                db.daily_trend(conn, days=days, local_tz=config.tz, search=search),
+                db.daily_trend(conn, days=days, local_tz=config.tz, search=search, exclude_species=watchlisted),
             )
         finally:
             conn.close()
@@ -327,18 +367,9 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
-            # Build combined watchlist: explicit + auto
+            watchlisted = _current_watchlist(config, conn)
             explicit = list(config.watchlist)
-            auto: list[str] = []
-            if config.auto_watchlist_threshold > 0:
-                auto_set = set()
-                rows = conn.execute(
-                    "SELECT common_name, COUNT(*) AS cnt FROM detections "
-                    "GROUP BY common_name HAVING cnt <= ?",
-                    (config.auto_watchlist_threshold,),
-                ).fetchall()
-                auto_set = {r["common_name"] for r in rows}
-                auto = sorted(auto_set - set(explicit))
+            auto = sorted(watchlisted - set(explicit))
             all_species = explicit + auto
             stats = db.watchlist_stats(conn, all_species)
         finally:
@@ -551,15 +582,9 @@ def register(app: FastAPI) -> None:
         config = request.app.state.config
         conn = db.get_connection(config.db_path)
         try:
+            watchlisted = _current_watchlist(config, conn)
             explicit = list(config.watchlist)
-            auto: list[str] = []
-            if config.auto_watchlist_threshold > 0:
-                rows = conn.execute(
-                    "SELECT common_name FROM detections "
-                    "GROUP BY common_name HAVING COUNT(*) <= ?",
-                    (config.auto_watchlist_threshold,),
-                ).fetchall()
-                auto = sorted({r["common_name"] for r in rows} - set(explicit))
+            auto = sorted(watchlisted - set(explicit))
             all_species = explicit + auto
             stats = db.watchlist_stats(conn, all_species) if all_species else []
         finally:

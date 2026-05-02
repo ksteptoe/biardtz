@@ -10,7 +10,10 @@ import pytest
 
 from biardtz.web.db import (
     _GLOB_CHARS,
+    _exclusion_clause,
     _utc_offset_modifier,
+    activity_heatmap,
+    daily_trend,
     detection_timeline,
     recent_detections,
     species_frequency,
@@ -488,3 +491,184 @@ class TestWatchlistStats:
         result = watchlist_stats(db_conn_verified, ["Blue Tit"])
         assert result[0]["total"] == 1
         assert result[0]["verified"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _exclusion_clause
+# ---------------------------------------------------------------------------
+
+
+class TestExclusionClause:
+    """Tests for the _exclusion_clause helper function."""
+
+    def test_none_returns_empty_string(self):
+        """Passing None returns empty string and does not modify params."""
+        params: list = []
+        result = _exclusion_clause(None, params)
+        assert result == ""
+        assert params == []
+
+    def test_empty_set_returns_empty_string(self):
+        """Passing an empty set returns empty string and does not modify params."""
+        params: list = []
+        result = _exclusion_clause(set(), params)
+        assert result == ""
+        assert params == []
+
+    def test_single_species_returns_sql_and_appends_param(self):
+        """Single species returns NOT IN clause and appends to params."""
+        params: list = []
+        result = _exclusion_clause({"Robin"}, params)
+        assert "NOT IN" in result
+        assert "?" in result
+        assert params == ["Robin"]
+
+    def test_multiple_species_returns_correct_placeholders(self):
+        """Multiple species returns correct number of placeholders."""
+        params: list = []
+        result = _exclusion_clause({"Robin", "Wren"}, params)
+        assert result.count("?") == 2
+        # Params are sorted
+        assert params == ["Robin", "Wren"]
+
+    def test_params_are_sorted(self):
+        """Species are appended to params in sorted order for determinism."""
+        params: list = []
+        _exclusion_clause({"Wren", "Blue Tit", "Robin"}, params)
+        assert params == ["Blue Tit", "Robin", "Wren"]
+
+
+# ---------------------------------------------------------------------------
+# exclude_species on aggregate query functions
+# ---------------------------------------------------------------------------
+
+
+class TestSpeciesStatsExcludeSpecies:
+    """species_stats with exclude_species filters out watchlisted species."""
+
+    def test_excludes_robin_from_counts(self, db_conn):
+        """Robin excluded from today_count, today_species, leaderboard."""
+        stats = species_stats(db_conn, local_tz=ZoneInfo("UTC"), exclude_species={"Robin"})
+        # 7 total minus 1 Robin = 6
+        assert stats["today_count"] == 6
+        assert stats["today_species"] == 6
+        leaderboard_names = {e["common_name"] for e in stats["leaderboard"]}
+        assert "Robin" not in leaderboard_names
+        assert "Blue Tit" in leaderboard_names
+
+    def test_excludes_multiple_species(self, db_conn):
+        """Multiple species excluded from all counts."""
+        stats = species_stats(
+            db_conn, local_tz=ZoneInfo("UTC"),
+            exclude_species={"Robin", "Wren", "Blackbird"},
+        )
+        assert stats["today_count"] == 4
+        assert stats["today_species"] == 4
+        assert stats["all_time_species"] == 4
+        leaderboard_names = {e["common_name"] for e in stats["leaderboard"]}
+        assert "Robin" not in leaderboard_names
+        assert "Wren" not in leaderboard_names
+        assert "Blackbird" not in leaderboard_names
+
+    def test_none_includes_everything(self, db_conn):
+        """exclude_species=None (default) includes all species."""
+        stats = species_stats(db_conn, local_tz=ZoneInfo("UTC"), exclude_species=None)
+        assert stats["today_count"] == 7
+        assert stats["today_species"] == 7
+
+    def test_empty_set_includes_everything(self, db_conn):
+        """exclude_species=set() includes all species."""
+        stats = species_stats(db_conn, local_tz=ZoneInfo("UTC"), exclude_species=set())
+        assert stats["today_count"] == 7
+
+
+class TestDetectionTimelineExcludeSpecies:
+    """detection_timeline with exclude_species filters out watchlisted species."""
+
+    def test_excludes_robin_from_hourly_counts(self, db_conn):
+        results = detection_timeline(
+            db_conn, days=7, local_tz=ZoneInfo("UTC"),
+            exclude_species={"Robin"},
+        )
+        total = sum(r["count"] for r in results)
+        assert total == 6  # 7 minus 1 Robin
+
+    def test_none_includes_everything(self, db_conn):
+        results = detection_timeline(
+            db_conn, days=7, local_tz=ZoneInfo("UTC"),
+            exclude_species=None,
+        )
+        total = sum(r["count"] for r in results)
+        assert total == 7
+
+
+class TestSpeciesFrequencyExcludeSpecies:
+    """species_frequency with exclude_species filters out watchlisted species."""
+
+    def test_excludes_species_from_ranking(self, db_conn):
+        results = species_frequency(
+            db_conn, days=30, local_tz=ZoneInfo("UTC"),
+            exclude_species={"Robin", "Wren"},
+        )
+        names = {r["common_name"] for r in results}
+        assert "Robin" not in names
+        assert "Wren" not in names
+        assert "Blue Tit" in names
+
+
+class TestActivityHeatmapExcludeSpecies:
+    """activity_heatmap with exclude_species filters out watchlisted species."""
+
+    def test_excludes_species_from_heatmap(self, db_conn):
+        results = activity_heatmap(
+            db_conn, days=30, local_tz=ZoneInfo("UTC"),
+            exclude_species={"Robin"},
+        )
+        total = sum(r["count"] for r in results)
+        assert total == 6  # 7 minus 1 Robin
+
+
+class TestDailyTrendExcludeSpecies:
+    """daily_trend with exclude_species filters out watchlisted species."""
+
+    def test_excludes_species_from_trend(self, db_conn):
+        results = daily_trend(
+            db_conn, days=30, local_tz=ZoneInfo("UTC"),
+            exclude_species={"Robin", "Wren"},
+        )
+        total = sum(r["count"] for r in results)
+        assert total == 5  # 7 minus 2
+
+    def test_species_count_excludes_filtered(self, db_conn):
+        results = daily_trend(
+            db_conn, days=30, local_tz=ZoneInfo("UTC"),
+            exclude_species={"Robin", "Wren"},
+        )
+        # All remaining 5 detections are on the same day
+        assert len(results) == 1
+        assert results[0]["species"] == 5  # 7 unique minus 2 excluded
+
+
+# ---------------------------------------------------------------------------
+# exclude_species combined with verified column
+# ---------------------------------------------------------------------------
+
+
+class TestExcludeSpeciesWithVerified:
+    """Ensure exclude_species works correctly alongside the verified column."""
+
+    def test_excludes_and_filters_unverified(self, db_conn_verified):
+        """Both exclude_species and verified filtering apply together."""
+        # db_conn_verified has: Robin(unverified), Blackbird(unverified),
+        # Blue Tit, Great Tit, Wren, Chaffinch, Goldfinch (all verified)
+        stats = species_stats(
+            db_conn_verified, local_tz=ZoneInfo("UTC"),
+            exclude_species={"Blue Tit"},
+        )
+        # 5 verified total minus 1 excluded Blue Tit = 4
+        assert stats["today_count"] == 4
+        leaderboard_names = {e["common_name"] for e in stats["leaderboard"]}
+        assert "Blue Tit" not in leaderboard_names
+        # Robin/Blackbird excluded by verified filter
+        assert "Robin" not in leaderboard_names
+        assert "Blackbird" not in leaderboard_names

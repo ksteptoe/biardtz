@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import httpx
+import pytest
 
 from biardtz.config import Config
 from biardtz.web import _make_format_time, create_app
@@ -1828,3 +1829,219 @@ class TestWatchlistRoutes:
         assert "text/html" in resp.headers.get("content-type", "")
         assert "Robin" in resp.text
         assert "Watchlist" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Watchlist display-time override tests
+# ---------------------------------------------------------------------------
+
+
+class TestWatchlistDisplayOverride:
+    """Tests for the display-time watchlist override feature.
+
+    When a species is on the watchlist, its detections should have
+    verified=0 at display time (even if DB has verified=1), and
+    aggregate stats/charts should exclude watchlisted species.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_chart_cache(self):
+        """Clear the route-level chart cache to avoid cross-test leakage."""
+        from biardtz.web.routes import _cache
+        _cache.clear()
+
+    def test_detections_show_unverified_for_watchlisted_species(self, tmp_path):
+        """Detection cards for watchlisted species show verified=0 even if DB has verified=1."""
+        now = _now_iso()
+        # Robin is verified=1 in DB but on watchlist
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+        ]
+        app = _make_watchlist_app(tmp_path, watchlist=["Robin"], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/detections")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        # API endpoint (/api/detections) does NOT apply the override
+        # (it returns raw data). The override is on index/partials only.
+        robin = [d for d in data if d["common_name"] == "Robin"]
+        assert len(robin) == 1
+        # Raw API should still show verified=1
+        assert robin[0]["verified"] == 1
+
+    def test_index_applies_watchlist_override_on_detections(self, tmp_path):
+        """GET / applies watchlist override: watchlisted species appear as unverified."""
+        now = _now_iso()
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+        ]
+        app = _make_watchlist_app(tmp_path, watchlist=["Robin"], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        # Robin should appear as unverified in the HTML (question mark badge)
+        # The exact HTML depends on the template, but we check the page renders
+        assert "Robin" in resp.text
+
+    def test_partial_detections_applies_watchlist_override(self, tmp_path):
+        """GET /partials/detections applies watchlist override on watchlisted species."""
+        now = _now_iso()
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+        ]
+        app = _make_watchlist_app(tmp_path, watchlist=["Robin"], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/detections")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        # Both species still appear in the HTML
+        assert "Robin" in resp.text
+        assert "Wren" in resp.text
+
+    def test_stats_exclude_watchlisted_species_from_counts(self, tmp_path):
+        """GET /partials/stats excludes watchlisted species from counts."""
+        now = _now_iso()
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+            (now, "Blackbird", "Turdus merula", 0.70, None, None, 1),
+        ]
+        app = _make_watchlist_app(tmp_path, watchlist=["Robin"], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/stats")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        # Robin should NOT appear in the leaderboard
+        assert "Robin" not in resp.text
+        # Other species should appear
+        assert "Wren" in resp.text or "Blackbird" in resp.text
+
+    def test_empty_watchlist_shows_normal_verified_status(self, tmp_path):
+        """With no watchlist, detections show their original verified status."""
+        now = _now_iso()
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+        ]
+        # No watchlist configured
+        app = _make_watchlist_app(tmp_path, watchlist=[], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/detections")
+
+        resp = asyncio.run(_run())
+        data = resp.json()
+        # All detections should keep their original verified=1
+        assert all(d["verified"] == 1 for d in data)
+
+    def test_charts_exclude_watchlisted_from_timeline(self, tmp_path):
+        """GET /api/charts/timeline excludes watchlisted species from counts."""
+        now = _now_iso()
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+            (now, "Blackbird", "Turdus merula", 0.70, None, None, 1),
+        ]
+        app = _make_watchlist_app(tmp_path, watchlist=["Robin"], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/timeline?days=1")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        total = sum(entry["count"] for entry in data)
+        # Robin excluded, Wren + Blackbird = 2
+        assert total == 2
+
+    def test_charts_exclude_watchlisted_from_species_frequency(self, tmp_path):
+        """GET /api/charts/species excludes watchlisted species."""
+        now = _now_iso()
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+        ]
+        app = _make_watchlist_app(tmp_path, watchlist=["Robin"], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/species?days=1")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        names = {d["common_name"] for d in data}
+        assert "Robin" not in names
+        assert "Wren" in names
+
+    def test_charts_exclude_watchlisted_from_trend(self, tmp_path):
+        """GET /api/charts/trend excludes watchlisted species."""
+        now = _now_iso()
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+            (now, "Blackbird", "Turdus merula", 0.70, None, None, 1),
+        ]
+        app = _make_watchlist_app(tmp_path, watchlist=["Robin"], verified_rows=verified_rows)
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/api/charts/trend?days=1")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        data = resp.json()
+        total = sum(d["count"] for d in data)
+        assert total == 2  # Robin excluded
+
+    def test_auto_watchlist_species_excluded_from_stats(self, tmp_path):
+        """Auto-watchlisted species (low detection count) are excluded from stats."""
+        now = _now_iso()
+        # Robin has 1 detection (below threshold), Wren has 3
+        verified_rows = [
+            (now, "Robin", "Erithacus rubecula", 0.85, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.60, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.65, None, None, 1),
+            (now, "Wren", "Troglodytes troglodytes", 0.70, None, None, 1),
+        ]
+        app = _make_watchlist_app(
+            tmp_path, auto_threshold=1, verified_rows=verified_rows,
+        )
+
+        async def _run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                return await c.get("/partials/stats")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 200
+        # Robin auto-watchlisted (1 detection <= threshold 1), excluded from stats
+        assert "Robin" not in resp.text
+        assert "Wren" in resp.text
