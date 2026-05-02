@@ -95,9 +95,9 @@
     <div class="md:col-span-2">
         <h2 class="text-lg font-semibold mb-3">Recent Detections</h2>
         {% include "_filter_bar.html" %}
-        <div id="detection-results"
+        <div class="detection-results"
              hx-get="/partials/detections"
-             hx-include="#filters"
+             hx-include="previous form"
              hx-trigger="every 5s"
              hx-swap="innerHTML transition:true">
             {% include "_detections.html" %}
@@ -109,7 +109,7 @@
         <h2 class="text-lg font-semibold mb-3">Species Leaderboard</h2>
         <div id="stats-panel"
              hx-get="/partials/stats"
-             hx-include="[name='search']"
+             hx-include="previous [name='search']"
              hx-trigger="every 30s"
              hx-swap="innerHTML">
             {% include "_stats.html" %}

@@ -957,7 +957,7 @@ class TestRoutes:
 
         resp = asyncio.run(_run())
         assert resp.status_code == 200
-        assert 'id="detection-results"' in resp.text
+        assert 'class="detection-results"' in resp.text
 
     def test_partial_detections_load_more_shown(self, tmp_path):
         """When result count == limit (default 20), 'Load more' button appears."""
