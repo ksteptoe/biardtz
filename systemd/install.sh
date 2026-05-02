@@ -11,8 +11,20 @@ if [[ ! -f "$SERVICE_FILE" ]]; then
     exit 1
 fi
 
+CONF_FILE="$SCRIPT_DIR/biardtz.conf"
+
 echo "Installing biardtz.service..."
 cp "$SERVICE_FILE" /etc/systemd/system/biardtz.service
+
+# Install config file (don't overwrite existing user edits)
+mkdir -p /etc/biardtz
+if [[ ! -f /etc/biardtz/biardtz.conf ]]; then
+    cp "$CONF_FILE" /etc/biardtz/biardtz.conf
+    echo "Created /etc/biardtz/biardtz.conf (edit to add --watchlist, etc.)"
+else
+    echo "/etc/biardtz/biardtz.conf already exists — not overwriting"
+fi
+
 systemctl daemon-reload
 systemctl enable biardtz.service
 echo "Service installed and enabled."

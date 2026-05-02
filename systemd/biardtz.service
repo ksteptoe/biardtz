@@ -10,7 +10,9 @@ Group=kevin
 WorkingDirectory=/home/kevin/py/biardtz
 
 # Use the venv Python directly
-ExecStart=/home/kevin/py/biardtz/.venv/bin/biardtz --no-dashboard -v
+# Extra CLI args are read from the environment file (BIARDTZ_OPTS)
+EnvironmentFile=-/etc/biardtz/biardtz.conf
+ExecStart=/home/kevin/py/biardtz/.venv/bin/biardtz --no-dashboard -v $BIARDTZ_OPTS
 ExecStop=/bin/kill -SIGTERM $MAINPID
 
 # Health check via heartbeat file
