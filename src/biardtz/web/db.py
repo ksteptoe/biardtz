@@ -43,9 +43,12 @@ def recent_detections(
 ) -> list[dict]:
     """Most recent detections, newest first, with optional filters."""
     has_bearing = _has_column(conn, "bearing")
+    has_verified = _has_column(conn, "verified")
     cols = "id, timestamp, common_name, sci_name, confidence"
     if has_bearing:
         cols += ", bearing, direction"
+    if has_verified:
+        cols += ", verified"
 
     conditions: list[str] = []
     params: list = []
@@ -83,6 +86,9 @@ def recent_detections(
         for r in results:
             r["bearing"] = None
             r["direction"] = None
+    if not has_verified:
+        for r in results:
+            r["verified"] = 1
     return results
 
 
@@ -113,10 +119,12 @@ def species_stats(
             search_sql = " AND common_name LIKE ? "
             search_params = [f"%{search}%"]
 
+    verified_sql = _verified_clause(conn)
+
     # Today's counts (using local timezone boundary)
     row = conn.execute(
         "SELECT COUNT(*) as count, COUNT(DISTINCT common_name) as species "
-        f"FROM detections WHERE timestamp >= ? {search_sql}",
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}",
         [today_start] + search_params,
     ).fetchone()
     today_count = row["count"]
@@ -125,12 +133,12 @@ def species_stats(
     # All-time unique species
     if search_sql:
         row = conn.execute(
-            f"SELECT COUNT(DISTINCT common_name) as total FROM detections WHERE 1=1 {search_sql}",
+            f"SELECT COUNT(DISTINCT common_name) as total FROM detections WHERE 1=1 {verified_sql}{search_sql}",
             search_params,
         ).fetchone()
     else:
         row = conn.execute(
-            "SELECT COUNT(DISTINCT common_name) as total FROM detections",
+            f"SELECT COUNT(DISTINCT common_name) as total FROM detections WHERE 1=1 {verified_sql}",
         ).fetchone()
     all_time_species = row["total"]
 
@@ -138,14 +146,14 @@ def species_stats(
     if search_sql:
         rows = conn.execute(
             "SELECT common_name, sci_name, COUNT(*) as count "
-            f"FROM detections WHERE 1=1 {search_sql} GROUP BY common_name "
+            f"FROM detections WHERE 1=1 {verified_sql}{search_sql} GROUP BY common_name "
             "ORDER BY count DESC LIMIT 15",
             search_params,
         ).fetchall()
     else:
         rows = conn.execute(
             "SELECT common_name, sci_name, COUNT(*) as count "
-            "FROM detections GROUP BY common_name "
+            f"FROM detections WHERE 1=1 {verified_sql} GROUP BY common_name "
             "ORDER BY count DESC LIMIT 15",
         ).fetchall()
     leaderboard = [dict(r) for r in rows]
@@ -187,6 +195,11 @@ def _search_clause(search: str | None, params: list) -> str:
     return " AND common_name LIKE ? "
 
 
+def _verified_clause(conn: sqlite3.Connection) -> str:
+    """Return 'AND verified = 1' if the column exists, else empty string."""
+    return " AND verified = 1 " if _has_column(conn, "verified") else ""
+
+
 def detection_timeline(
     conn: sqlite3.Connection,
     days: int = 7,
@@ -196,12 +209,13 @@ def detection_timeline(
     """Hourly detection counts for the last *days* days, in local time."""
     since = _days_ago_utc(days, local_tz)
     modifier = _utc_offset_modifier(local_tz)
+    verified_sql = _verified_clause(conn)
     params: list = [since]
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
         "COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
         "GROUP BY hour ORDER BY hour",
         params,
     ).fetchall()
@@ -217,12 +231,13 @@ def species_frequency(
 ) -> list[dict]:
     """Top species by detection count over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
+    verified_sql = _verified_clause(conn)
     params: list = [since]
     search_sql = _search_clause(search, params)
     params.append(limit)
     rows = conn.execute(
         "SELECT common_name, sci_name, COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
         "GROUP BY common_name ORDER BY count DESC LIMIT ?",
         params,
     ).fetchall()
@@ -237,13 +252,14 @@ def activity_heatmap(
 ) -> list[dict]:
     """Detection counts by day-of-week and hour-of-day."""
     since = _days_ago_utc(days, local_tz)
+    verified_sql = _verified_clause(conn)
     params: list = [since]
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow, "
         "CAST(strftime('%H', timestamp) AS INTEGER) AS hour, "
         "COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
         "GROUP BY dow, hour",
         params,
     ).fetchall()
@@ -258,12 +274,13 @@ def daily_trend(
 ) -> list[dict]:
     """Daily detection count and unique species over the last *days* days."""
     since = _days_ago_utc(days, local_tz)
+    verified_sql = _verified_clause(conn)
     params: list = [since]
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT date(timestamp) AS day, COUNT(*) AS count, "
         "COUNT(DISTINCT common_name) AS species "
-        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
         "GROUP BY day ORDER BY day",
         params,
     ).fetchall()
@@ -283,12 +300,13 @@ def timeline_species_breakdown(
     """
     since = _days_ago_utc(days, local_tz)
     modifier = _utc_offset_modifier(local_tz)
+    verified_sql = _verified_clause(conn)
     params: list = [since]
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         f"SELECT strftime('%Y-%m-%dT%H:00:00', timestamp, '{modifier}') AS hour, "
         "common_name, COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
         "GROUP BY hour, common_name ORDER BY hour, count DESC",
         params,
     ).fetchall()
@@ -312,13 +330,14 @@ def heatmap_species_breakdown(
     Returns ``{"dow-hour": {species_name: count, ...}, ...}``.
     """
     since = _days_ago_utc(days, local_tz)
+    verified_sql = _verified_clause(conn)
     params: list = [since]
     search_sql = _search_clause(search, params)
     rows = conn.execute(
         "SELECT CAST(strftime('%w', timestamp) AS INTEGER) AS dow, "
         "CAST(strftime('%H', timestamp) AS INTEGER) AS hour, "
         "common_name, COUNT(*) AS count "
-        f"FROM detections WHERE timestamp >= ? {search_sql}"
+        f"FROM detections WHERE timestamp >= ? {verified_sql}{search_sql}"
         "GROUP BY dow, hour, common_name ORDER BY dow, hour, count DESC",
         params,
     ).fetchall()

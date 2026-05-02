@@ -23,6 +23,7 @@ A passive, always-on bird identification station that listens via a ReSpeaker US
 - Server-side chart caching and loading skeletons for fast page loads
 - Rich terminal dashboard for headless monitoring
 - Systemd service with health monitoring and auto-restart
+- Detection verification for rare/watchlist species --- multi-chunk confirmation with amber `?` badge for unverified
 - Direction-of-arrival estimation via ReSpeaker 4-mic array
 
 See the full [Build Log](docs/build_log.md) for hardware details, architecture, and setup instructions.
@@ -45,6 +46,11 @@ Key CLI options:
 --threshold FLOAT    Minimum confidence 0.0-1.0 (default: 0.25)
 --device INT         Audio device index (None = system default)
 --array-bearing FLOAT  Compass bearing the mic array faces (default: 0.0)
+--watchlist TEXT      Comma-separated species requiring verification
+--watchlist-file PATH  Text file with one species per line (# comments)
+--auto-watchlist N   Auto-watchlist species with <= N total detections (0=off)
+--verify-count N     Detections needed within window to verify (default: 2)
+--verify-window SECS Verification time window in seconds (default: 300)
 --dashboard/--no-dashboard  Enable Rich live dashboard (default: on)
 --web/--no-web       Enable web dashboard (default: on)
 -v / -vv             Verbosity (info / debug)
@@ -115,6 +121,7 @@ src/biardtz/
     dashboard.py        Rich live terminal dashboard showing recent detections
     main.py             Async orchestrator — wires audio, detector, logger, dashboard
     api.py              Public Python API (Config, Detection, Detector, DetectionLogger)
+    verifier.py         Multi-chunk verification for watchlist species
     health.py           Pipeline health monitor and heartbeat writer
     geocode.py          Location name to lat/lon/timezone resolution
     doa.py              Direction-of-arrival estimation for mic array

@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 1.1.16
+
+- Detection verification for rare/watchlist species: species on a watchlist require multiple detections within a configurable time window before being marked "verified"
+- New CLI options: `--watchlist`, `--watchlist-file`, `--auto-watchlist`, `--verify-count`, `--verify-window`
+- Unverified detections are kept in the database but flagged with an amber `?` badge on the web dashboard and reduced opacity on detection cards
+- Rich TUI shows `?` marker in the status column for unverified detections
+- Stats, charts, and leaderboard count only verified detections
+- New `verified` column in the detections table (INTEGER DEFAULT 1) -- existing detections are auto-verified
+- New module: `verifier.py` with in-memory pending buffer for multi-chunk verification logic
+
 ## Version 1.1.15
 
 - Chart drill-down: click any chart element (timeline point, species bar, daily trend bar, heatmap cell) to see matching detection cards in a drill-down panel

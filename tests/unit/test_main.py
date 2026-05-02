@@ -81,7 +81,7 @@ class TestDetectionWorker:
     @pytest.fixture
     def det_logger(self):
         lg = MagicMock()
-        lg.log = AsyncMock()
+        lg.log = AsyncMock(return_value=1)
         lg.get_audio_confidence = AsyncMock(return_value=None)
         lg.save_audio_clip = AsyncMock()
         return lg
@@ -146,7 +146,8 @@ class TestDetectionWorker:
 
         asyncio.run(run())
         assert not dashboard_q.empty()
-        assert dashboard_q.get_nowait() == det
+        item = dashboard_q.get_nowait()
+        assert item == (det, True)
 
     def test_inference_error_continues(self, detector, det_logger):
         from biardtz.main import _detection_worker
@@ -251,6 +252,180 @@ class TestDetectionWorker:
         health.record_error.assert_called_once_with("Inference error")
 
 
+class TestDetectionWorkerWithVerifier:
+    """Tests for _detection_worker with verifier integration."""
+
+    @pytest.fixture
+    def detector(self):
+        d = MagicMock()
+        d.predict = AsyncMock(return_value=[])
+        return d
+
+    @pytest.fixture
+    def det_logger(self):
+        lg = MagicMock()
+        lg.log = AsyncMock(return_value=42)
+        lg.get_audio_confidence = AsyncMock(return_value=None)
+        lg.save_audio_clip = AsyncMock()
+        return lg
+
+    def test_worker_sends_true_when_no_verifier(self, detector, det_logger):
+        """Without verifier, dashboard receives (det, True)."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Robin", "Erithacus rubecula", 0.9)
+        detector.predict = AsyncMock(return_value=[det])
+        audio_q = asyncio.Queue()
+        dashboard_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, dashboard_q, verifier=None)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        item = dashboard_q.get_nowait()
+        assert item == (det, True)
+
+    def test_worker_sends_false_for_watchlist_first_detection(self, detector, det_logger):
+        """Watchlist species on first detection: dashboard gets (det, False)."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Nightingale", "Luscinia megarhynchos", 0.8)
+        detector.predict = AsyncMock(return_value=[det])
+        audio_q = asyncio.Queue()
+        dashboard_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        verifier = MagicMock()
+        verifier.needs_verification = MagicMock(return_value=True)
+        verifier.submit = AsyncMock(return_value=False)
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, dashboard_q, verifier=verifier)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        item = dashboard_q.get_nowait()
+        assert item == (det, False)
+
+    def test_worker_logs_verified_false_for_watchlist(self, detector, det_logger):
+        """Worker logs with verified=False when species needs verification."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Nightingale", "Luscinia megarhynchos", 0.8)
+        detector.predict = AsyncMock(return_value=[det])
+        audio_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        verifier = MagicMock()
+        verifier.needs_verification = MagicMock(return_value=True)
+        verifier.submit = AsyncMock(return_value=False)
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, None, verifier=verifier)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        det_logger.log.assert_called_once()
+        _, kwargs = det_logger.log.call_args
+        assert kwargs["verified"] is False
+
+    def test_worker_logs_verified_true_for_non_watchlist(self, detector, det_logger):
+        """Worker logs with verified=True for non-watchlist species even with verifier."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Robin", "Erithacus rubecula", 0.9)
+        detector.predict = AsyncMock(return_value=[det])
+        audio_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        verifier = MagicMock()
+        verifier.needs_verification = MagicMock(return_value=False)
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, None, verifier=verifier)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        det_logger.log.assert_called_once()
+        _, kwargs = det_logger.log.call_args
+        assert kwargs["verified"] is True
+
+    def test_worker_calls_verifier_submit_for_watchlist(self, detector, det_logger):
+        """Worker calls verifier.submit with the detection and row_id."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Nightingale", "Luscinia megarhynchos", 0.8)
+        detector.predict = AsyncMock(return_value=[det])
+        det_logger.log = AsyncMock(return_value=99)
+        audio_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        verifier = MagicMock()
+        verifier.needs_verification = MagicMock(return_value=True)
+        verifier.submit = AsyncMock(return_value=True)
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, None, verifier=verifier)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        verifier.submit.assert_called_once_with(det, 99)
+
+    def test_worker_sends_true_when_verifier_confirms(self, detector, det_logger):
+        """When verifier.submit returns True, dashboard gets (det, True)."""
+        from biardtz.main import _detection_worker
+
+        det = Detection("Nightingale", "Luscinia megarhynchos", 0.8)
+        detector.predict = AsyncMock(return_value=[det])
+        audio_q = asyncio.Queue()
+        dashboard_q = asyncio.Queue()
+        audio_q.put_nowait(np.zeros(100, dtype=np.float32))
+
+        verifier = MagicMock()
+        verifier.needs_verification = MagicMock(return_value=True)
+        verifier.submit = AsyncMock(return_value=True)
+
+        async def run():
+            task = asyncio.create_task(
+                _detection_worker(detector, audio_q, det_logger, dashboard_q, verifier=verifier)
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        item = dashboard_q.get_nowait()
+        assert item == (det, True)
+
+
 class TestRun:
     """Tests for the run() orchestrator."""
 
@@ -269,6 +444,7 @@ class TestRun:
                 patch("biardtz.main.Detector") as mock_det_cls,
                 patch("biardtz.main.DetectionLogger") as mock_log_cls,
                 patch("biardtz.main.audio_producer", new_callable=AsyncMock) as mock_audio,
+                patch("biardtz.main.Verifier") as mock_verifier_cls,
             ):
                 mock_det = MagicMock()
                 mock_det.predict = AsyncMock(return_value=[])
@@ -278,11 +454,17 @@ class TestRun:
                 mock_logger.init_db = AsyncMock()
                 mock_logger.session_summary = AsyncMock(return_value="Summary")
                 mock_logger.close = AsyncMock()
-                mock_logger.log = AsyncMock()
+                mock_logger.log = AsyncMock(return_value=1)
+                mock_logger.rare_species = AsyncMock(return_value=set())
                 mock_log_cls.return_value = mock_logger
 
+                mock_verifier = MagicMock()
+                mock_verifier.refresh_auto_watchlist = AsyncMock()
+                mock_verifier.expire_pending = AsyncMock(return_value=[])
+                mock_verifier_cls.return_value = mock_verifier
+
                 # Make audio_producer set stop_event after brief delay
-                async def fake_audio(cfg, q):
+                async def fake_audio(cfg, q, **kwargs):
                     await asyncio.sleep(60)
 
                 mock_audio.side_effect = fake_audio
@@ -313,6 +495,7 @@ class TestRun:
                 patch("biardtz.main.DetectionLogger") as mock_log_cls,
                 patch("biardtz.main.audio_producer", new_callable=AsyncMock) as mock_audio,
                 patch("biardtz.main.Dashboard") as mock_dash_cls,
+                patch("biardtz.main.Verifier") as mock_verifier_cls,
             ):
                 mock_det = MagicMock()
                 mock_det.predict = AsyncMock(return_value=[])
@@ -322,14 +505,20 @@ class TestRun:
                 mock_logger.init_db = AsyncMock()
                 mock_logger.session_summary = AsyncMock(return_value="Summary")
                 mock_logger.close = AsyncMock()
-                mock_logger.log = AsyncMock()
+                mock_logger.log = AsyncMock(return_value=1)
+                mock_logger.rare_species = AsyncMock(return_value=set())
                 mock_log_cls.return_value = mock_logger
+
+                mock_verifier = MagicMock()
+                mock_verifier.refresh_auto_watchlist = AsyncMock()
+                mock_verifier.expire_pending = AsyncMock(return_value=[])
+                mock_verifier_cls.return_value = mock_verifier
 
                 mock_dash = MagicMock()
                 mock_dash.run = AsyncMock(side_effect=lambda q: asyncio.sleep(60))
                 mock_dash_cls.return_value = mock_dash
 
-                async def fake_audio(cfg, q):
+                async def fake_audio(cfg, q, **kwargs):
                     await asyncio.sleep(60)
 
                 mock_audio.side_effect = fake_audio

@@ -256,6 +256,180 @@ class TestAudioClips:
             await logger.close()
 
 
+class TestLogVerified:
+    """Tests for the verified parameter of DetectionLogger.log."""
+
+    def test_log_returns_row_id(self, config, logger):
+        asyncio.run(self._run(logger))
+
+    @staticmethod
+    async def _run(logger):
+        await logger.init_db()
+        try:
+            det = Detection("Robin", "Erithacus rubecula", 0.85)
+            row_id = await logger.log(det)
+            assert isinstance(row_id, int)
+            assert row_id >= 1
+        finally:
+            await logger.close()
+
+    def test_log_verified_true_by_default(self, config, logger):
+        asyncio.run(self._run_default(logger))
+
+    @staticmethod
+    async def _run_default(logger):
+        await logger.init_db()
+        try:
+            det = Detection("Robin", "Erithacus rubecula", 0.85)
+            row_id = await logger.log(det)
+            cursor = await logger._db.execute(
+                "SELECT verified FROM detections WHERE id = ?", (row_id,)
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 1
+        finally:
+            await logger.close()
+
+    def test_log_verified_false(self, config, logger):
+        asyncio.run(self._run_unverified(logger))
+
+    @staticmethod
+    async def _run_unverified(logger):
+        await logger.init_db()
+        try:
+            det = Detection("Nightingale", "Luscinia megarhynchos", 0.7)
+            row_id = await logger.log(det, verified=False)
+            cursor = await logger._db.execute(
+                "SELECT verified FROM detections WHERE id = ?", (row_id,)
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 0
+        finally:
+            await logger.close()
+
+    def test_sequential_row_ids(self, config, logger):
+        asyncio.run(self._run_sequential(logger))
+
+    @staticmethod
+    async def _run_sequential(logger):
+        await logger.init_db()
+        try:
+            det = Detection("Robin", "Erithacus rubecula", 0.85)
+            id1 = await logger.log(det)
+            id2 = await logger.log(det)
+            assert id2 == id1 + 1
+        finally:
+            await logger.close()
+
+
+class TestVerifyDetections:
+    """Tests for DetectionLogger.verify_detections."""
+
+    def test_marks_rows_as_verified(self, config, logger):
+        asyncio.run(self._run(logger))
+
+    @staticmethod
+    async def _run(logger):
+        await logger.init_db()
+        try:
+            det = Detection("Nightingale", "Luscinia megarhynchos", 0.7)
+            id1 = await logger.log(det, verified=False)
+            id2 = await logger.log(det, verified=False)
+
+            await logger.verify_detections([id1, id2])
+
+            cursor = await logger._db.execute(
+                "SELECT verified FROM detections WHERE id IN (?, ?)", (id1, id2)
+            )
+            rows = await cursor.fetchall()
+            assert all(row[0] == 1 for row in rows)
+        finally:
+            await logger.close()
+
+    def test_does_not_affect_other_rows(self, config, logger):
+        asyncio.run(self._run_other(logger))
+
+    @staticmethod
+    async def _run_other(logger):
+        await logger.init_db()
+        try:
+            det = Detection("Nightingale", "Luscinia megarhynchos", 0.7)
+            id1 = await logger.log(det, verified=False)
+            id2 = await logger.log(det, verified=False)
+
+            # Only verify id1
+            await logger.verify_detections([id1])
+
+            cursor = await logger._db.execute(
+                "SELECT verified FROM detections WHERE id = ?", (id2,)
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 0
+        finally:
+            await logger.close()
+
+    def test_empty_list_is_noop(self, config, logger):
+        asyncio.run(self._run_empty(logger))
+
+    @staticmethod
+    async def _run_empty(logger):
+        await logger.init_db()
+        try:
+            # Should not raise
+            await logger.verify_detections([])
+        finally:
+            await logger.close()
+
+
+class TestRareSpecies:
+    """Tests for DetectionLogger.rare_species."""
+
+    def test_returns_species_below_threshold(self, config, logger):
+        asyncio.run(self._run(logger))
+
+    @staticmethod
+    async def _run(logger):
+        await logger.init_db()
+        try:
+            # Robin: 3 detections, Nightingale: 1 detection
+            for _ in range(3):
+                await logger.log(Detection("Robin", "Erithacus rubecula", 0.8))
+            await logger.log(Detection("Nightingale", "Luscinia megarhynchos", 0.7))
+
+            rare = await logger.rare_species(2)
+            assert "Nightingale" in rare  # 1 <= 2
+            assert "Robin" not in rare     # 3 > 2
+        finally:
+            await logger.close()
+
+    def test_threshold_equals_count(self, config, logger):
+        asyncio.run(self._run_equal(logger))
+
+    @staticmethod
+    async def _run_equal(logger):
+        await logger.init_db()
+        try:
+            await logger.log(Detection("Robin", "Erithacus rubecula", 0.8))
+            await logger.log(Detection("Robin", "Erithacus rubecula", 0.9))
+
+            rare = await logger.rare_species(2)
+            assert "Robin" in rare  # 2 <= 2
+        finally:
+            await logger.close()
+
+    def test_no_detections_returns_empty(self, config, logger):
+        asyncio.run(self._run_empty(logger))
+
+    @staticmethod
+    async def _run_empty(logger):
+        await logger.init_db()
+        try:
+            rare = await logger.rare_species(5)
+            assert rare == set()
+        finally:
+            await logger.close()
+
+
 class TestClose:
     def test_close_works_cleanly(self, config, logger):
         asyncio.run(self._run(logger))

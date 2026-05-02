@@ -175,6 +175,7 @@ biardtz/                         # Repository root (PyScaffold layout)
 │   ├── logger.py               # aiosqlite detection logger + schema
 │   ├── dashboard.py            # Rich live terminal dashboard
 │   ├── doa.py                  # Direction of Arrival (GCC-PHAT on mic array)
+│   ├── verifier.py             # Multi-chunk verification for watchlist species
 │   ├── main.py                 # Async orchestrator — wires all pipeline stages
 │   ├── api.py                  # Public Python API
 │   └── web/                    # Web dashboard (FastAPI + HTMX)
@@ -379,6 +380,11 @@ sudo systemctl start biardtz
 | `num_threads` | 4 | Pi 5 has 4 cores — leave at 4 |
 | `db_path` | `/mnt/ssd/detections.db` | Override via `--db-path` |
 | `array_bearing` | 0.0 | Physical bearing of mic array (degrees from north) via `--array-bearing` |
+| `watchlist` | (none) | Comma-separated species requiring multi-chunk verification |
+| `watchlist_file` | (none) | Path to text file with one species per line (`#` comments supported) |
+| `auto_watchlist_threshold` | 0 | Auto-watchlist species with <= N total detections (0 = off) |
+| `verify_min_detections` | 2 | Number of detections needed within window to verify |
+| `verify_window_seconds` | 300 | Time window in seconds for verification (5 minutes) |
 
 ---
 
@@ -394,7 +400,8 @@ CREATE TABLE detections (
     latitude      REAL,
     longitude     REAL,
     bearing       REAL,              -- degrees from north (0-360), nullable
-    direction     TEXT               -- compass direction (N, NE, E, etc.), nullable
+    direction     TEXT,              -- compass direction (N, NE, E, etc.), nullable
+    verified      INTEGER DEFAULT 1  -- 1=verified, 0=pending watchlist confirmation
 );
 ```
 
@@ -611,6 +618,46 @@ All four charts now support click-to-drill-down, letting users explore the data 
 - **Activity Heatmap** --- click a cell to see detections for that specific day/hour combination
 
 Clickable elements show a "Click for details" hint in tooltips, and the cursor changes to a pointer on hover. Clicking opens a drill-down panel above the charts displaying a list of matching detection cards with a close button. When a bird search filter is active, the drill-down results respect that filter, showing only matching species.
+
+---
+
+## Session Log --- 2026-05-02
+
+### Detection Verification for Watchlist Species (v1.1.16)
+
+Added a multi-chunk verification system for rare or watchlist bird species. Species on a watchlist require multiple detections within a configurable time window before being marked as "verified." This reduces false positives for uncommon species that BirdNET occasionally misidentifies from a single audio chunk.
+
+**How it works:**
+
+When a watchlisted species is detected, the detection is logged to the database with `verified=0` (unverified). The `Verifier` class maintains an in-memory buffer of pending detections per species. Once the required number of detections (default 2) occurs within the time window (default 5 minutes), all buffered detections for that species are promoted to `verified=1`. Non-watchlisted species are verified immediately as before.
+
+**New CLI options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--watchlist TEXT` | (none) | Comma-separated species requiring verification, e.g. `"Common Nightingale,Common Cuckoo"` |
+| `--watchlist-file PATH` | (none) | Text file with one species per line (lines starting with `#` are comments) |
+| `--auto-watchlist N` | 0 | Auto-add species with <= N total detections to the watchlist (0 = off) |
+| `--verify-count N` | 2 | Number of detections needed within the window to verify |
+| `--verify-window SECS` | 300 | Verification time window in seconds (5 minutes) |
+
+**Config fields added:** `watchlist`, `watchlist_file`, `auto_watchlist_threshold`, `verify_min_detections`, `verify_window_seconds`.
+
+**New module:** `src/biardtz/verifier.py` --- `Verifier` class with an in-memory pending buffer keyed by species name. Expired pending detections (outside the time window) are pruned on each new detection.
+
+**Database change:** New `verified` column on the `detections` table:
+
+```sql
+ALTER TABLE detections ADD COLUMN verified INTEGER DEFAULT 1;
+```
+
+The `DEFAULT 1` ensures all existing detections are treated as verified. New detections for watchlisted species are inserted with `verified=0` until confirmed.
+
+**Dashboard changes:**
+
+- **Web dashboard** --- unverified detection cards display an amber `?` badge and reduced opacity, making them visually distinct from verified detections
+- **Rich TUI** --- unverified detections show a `?` marker in the status column
+- **Stats, charts, and leaderboard** --- all aggregate views count only verified detections (`WHERE verified = 1`), so unverified sightings do not inflate species counts or chart data
 
 ---
 

@@ -19,7 +19,7 @@ class Dashboard:
     """Rich live terminal dashboard showing recent detections."""
 
     def __init__(self, max_rows: int = 20, local_tz: ZoneInfo | None = None):
-        self._recent: deque[tuple[str, Detection]] = deque(maxlen=max_rows)
+        self._recent: deque[tuple[str, Detection, bool]] = deque(maxlen=max_rows)
         self._total = 0
         self._species: set[str] = set()
         self._start = datetime.now(timezone.utc)
@@ -34,13 +34,14 @@ class Dashboard:
             title=f"biardtz  |  {hours}h {minutes}m  |  {self._total} detections  |  {len(self._species)} species",
             expand=True,
         )
+        table.add_column("", width=2)
         table.add_column("Time", width=10)
         table.add_column("Species", ratio=2)
         table.add_column("Scientific Name", ratio=2)
         table.add_column("Confidence", justify="right", width=12)
         table.add_column("Direction", justify="center", width=6)
 
-        for ts, det in reversed(self._recent):
+        for ts, det, verified in reversed(self._recent):
             conf = det.confidence
             if conf >= 0.75:
                 style = "bold green"
@@ -48,7 +49,9 @@ class Dashboard:
                 style = "yellow"
             else:
                 style = "dim"
+            status = "" if verified else Text("?", style="bold yellow")
             table.add_row(
+                status,
                 ts, det.common_name, det.sci_name,
                 Text(f"{conf:.1%}", style=style),
                 det.direction or "",
@@ -59,9 +62,13 @@ class Dashboard:
     async def run(self, detection_queue: asyncio.Queue) -> None:
         with Live(self._build_table(), refresh_per_second=4) as live:
             while True:
-                detection: Detection = await detection_queue.get()
+                item = await detection_queue.get()
+                if isinstance(item, tuple) and len(item) == 2:
+                    detection, verified = item
+                else:
+                    detection, verified = item, True
                 ts = datetime.now(self._local_tz).strftime("%H:%M:%S")
-                self._recent.append((ts, detection))
+                self._recent.append((ts, detection, verified))
                 self._total += 1
                 self._species.add(detection.common_name)
                 live.update(self._build_table())

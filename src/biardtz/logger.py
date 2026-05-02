@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS audio_clips (
 _MIGRATION_COLUMNS = [
     ("bearing", "REAL"),
     ("direction", "TEXT"),
+    ("verified", "INTEGER DEFAULT 1"),
 ]
 
 
@@ -79,19 +80,43 @@ class DetectionLogger:
         await self._db.commit()
         _logger.info("Database ready at %s (WAL mode)", self._config.db_path)
 
-    async def log(self, detection: Detection) -> None:
+    async def log(self, detection: Detection, *, verified: bool = True) -> int:
         assert self._db is not None
         ts = datetime.now(timezone.utc).isoformat()
-        await self._db.execute(
+        cursor = await self._db.execute(
             "INSERT INTO detections "
-            "(timestamp, common_name, sci_name, confidence, latitude, longitude, bearing, direction) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(timestamp, common_name, sci_name, confidence, latitude, longitude, bearing, direction, verified) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, detection.common_name, detection.sci_name, detection.confidence,
              self._config.latitude, self._config.longitude,
-             detection.bearing, detection.direction),
+             detection.bearing, detection.direction, int(verified)),
         )
         await self._db.commit()
         self._count += 1
+        return cursor.lastrowid
+
+    async def verify_detections(self, row_ids: list[int]) -> None:
+        """Mark previously-pending detections as verified."""
+        assert self._db is not None
+        if not row_ids:
+            return
+        placeholders = ",".join("?" * len(row_ids))
+        await self._db.execute(
+            f"UPDATE detections SET verified = 1 WHERE id IN ({placeholders})",  # noqa: S608
+            row_ids,
+        )
+        await self._db.commit()
+
+    async def rare_species(self, threshold: int) -> set[str]:
+        """Return species names with <= *threshold* total detections."""
+        assert self._db is not None
+        cursor = await self._db.execute(
+            "SELECT common_name FROM detections "
+            "GROUP BY common_name HAVING COUNT(*) <= ?",
+            (threshold,),
+        )
+        rows = await cursor.fetchall()
+        return {row[0] for row in rows}
 
     async def get_audio_confidence(self, common_name: str) -> float | None:
         """Return the stored best confidence for a species' audio clip, or None."""

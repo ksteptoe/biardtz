@@ -16,6 +16,7 @@ from .detector import Detector
 from .doa import estimate_doa
 from .health import HealthMonitor
 from .logger import DetectionLogger
+from .verifier import Verifier
 
 _logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ async def _detection_worker(
     dashboard_queue: asyncio.Queue | None,
     config: Config | None = None,
     health: HealthMonitor | None = None,
+    verifier: Verifier | None = None,
 ) -> None:
     while True:
         item = await audio_queue.get()
@@ -84,7 +86,13 @@ async def _detection_worker(
                 det.common_name, det.confidence * 100,
                 f" from {det.direction} ({det.bearing:.0f}\u00b0)" if det.direction else "",
             )
-            await det_logger.log(det)
+
+            # Determine verification status and log
+            needs_verify = verifier is not None and verifier.needs_verification(det.common_name)
+            row_id = await det_logger.log(det, verified=not needs_verify)
+            verified = not needs_verify
+            if needs_verify:
+                verified = await verifier.submit(det, row_id)
 
             # Save audio clip if this is the best sample for the species
             if config is not None:
@@ -103,7 +111,19 @@ async def _detection_worker(
             if health:
                 health.mark_detection()
             if dashboard_queue is not None:
-                await dashboard_queue.put(det)
+                await dashboard_queue.put((det, verified))
+
+
+async def _verifier_maintenance(verifier: Verifier, stop_event: asyncio.Event) -> None:
+    """Periodically expire pending detections and refresh auto-watchlist."""
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=60)
+            break  # stop_event was set
+        except asyncio.TimeoutError:
+            pass
+        await verifier.expire_pending()
+        await verifier.refresh_auto_watchlist()
 
 
 async def run(config: Config) -> None:
@@ -113,6 +133,12 @@ async def run(config: Config) -> None:
     await det_logger.init_db()
 
     health = HealthMonitor()
+
+    # Set up verification
+    verifier = Verifier(config, det_logger)
+    await verifier.refresh_auto_watchlist()
+    if config.watchlist:
+        _logger.info("Watchlist: %s", ", ".join(config.watchlist))
 
     audio_queue: asyncio.Queue = asyncio.Queue(maxsize=8)
     dashboard_queue: asyncio.Queue | None = asyncio.Queue(maxsize=32) if config.enable_dashboard else None
@@ -140,10 +166,14 @@ async def run(config: Config) -> None:
             audio_producer(config, audio_queue, health=health), name="audio",
         ),
         asyncio.create_task(
-            _detection_worker(detector, audio_queue, det_logger, dashboard_queue, config, health=health),
+            _detection_worker(
+                detector, audio_queue, det_logger, dashboard_queue,
+                config, health=health, verifier=verifier,
+            ),
             name="worker",
         ),
         asyncio.create_task(health.run(), name="health"),
+        asyncio.create_task(_verifier_maintenance(verifier, stop_event), name="verifier"),
     ]
     if config.enable_dashboard and dashboard_queue is not None:
         dashboard = Dashboard(local_tz=config.tz)

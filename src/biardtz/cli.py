@@ -73,9 +73,21 @@ def _setup_logging(verbosity: int, log_dir: Path = DEFAULT_LOG_DIR) -> None:
 @click.option("--dashboard/--no-dashboard", default=True, show_default=True, help="Enable Rich live dashboard")
 @click.option("--web/--no-web", default=True, show_default=True, help="Enable web dashboard")
 @click.option("--web-port", type=int, default=8080, show_default=True, help="Web dashboard port")
+@click.option("--watchlist", type=str, default=None,
+              help="Comma-separated species requiring verification (e.g. 'Common Nightingale,Common Cuckoo')")
+@click.option("--watchlist-file", type=click.Path(exists=True), default=None,
+              help="Text file with one species name per line")
+@click.option("--auto-watchlist", type=int, default=0, show_default=True,
+              help="Auto-verify species with <= N total detections (0=off)")
+@click.option("--verify-count", type=int, default=2, show_default=True,
+              help="Detections needed within window to verify")
+@click.option("--verify-window", type=float, default=300.0, show_default=True,
+              help="Verification time window in seconds")
 @click.option("-v", "--verbose", count=True, help="-v for info, -vv for debug")
 @click.pass_context
-def cli(ctx, location, threshold, db_path, device, birdnet_path, array_bearing, dashboard, web, web_port, verbose):
+def cli(ctx, location, threshold, db_path, device, birdnet_path, array_bearing,
+        dashboard, web, web_port, watchlist, watchlist_file, auto_watchlist,
+        verify_count, verify_window, verbose):
     """biardtz — real-time bird identification on Raspberry Pi."""
     # If a subcommand was invoked, skip the main pipeline
     if ctx.invoked_subcommand is not None:
@@ -104,9 +116,16 @@ def cli(ctx, location, threshold, db_path, device, birdnet_path, array_bearing, 
         enable_dashboard=dashboard,
         enable_web=web,
         web_port=web_port,
+        auto_watchlist_threshold=auto_watchlist,
+        verify_min_detections=verify_count,
+        verify_window_seconds=verify_window,
     )
     if birdnet_path is not None:
         kwargs["birdnet_path"] = Path(birdnet_path)
+    if watchlist is not None:
+        kwargs["watchlist"] = tuple(s.strip() for s in watchlist.split(",") if s.strip())
+    if watchlist_file is not None:
+        kwargs["watchlist_file"] = Path(watchlist_file)
 
     config = Config(**kwargs)
 

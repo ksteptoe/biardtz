@@ -29,6 +29,13 @@ class Config:
     bird_image_cache: Path = Path("/mnt/ssd/bird_images")
     audio_clip_dir: Path = Path("/mnt/ssd/audio_clips")
 
+    # Verification — require watchlist species to be detected multiple times
+    watchlist: tuple[str, ...] = ()
+    watchlist_file: Path | None = None
+    auto_watchlist_threshold: int = 0  # species with <= N detections auto-added (0=off)
+    verify_min_detections: int = 2
+    verify_window_seconds: float = 300.0
+
     def __post_init__(self):
         self.db_path = Path(self.db_path)
         self.bird_image_cache = Path(self.bird_image_cache)
@@ -38,6 +45,14 @@ class Config:
             self.birdnet_path = Path(__file__).resolve().parents[3] / "BirdNET-Analyzer"
         else:
             self.birdnet_path = Path(self.birdnet_path)
+        if self.watchlist_file is not None:
+            self.watchlist_file = Path(self.watchlist_file)
+            if self.watchlist_file.exists():
+                file_species = tuple(
+                    line.strip() for line in self.watchlist_file.read_text().splitlines()
+                    if line.strip() and not line.startswith("#")
+                )
+                self.watchlist = tuple(dict.fromkeys(self.watchlist + file_species))
 
     @property
     def chunk_samples(self) -> int:

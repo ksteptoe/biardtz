@@ -1,5 +1,6 @@
 {% for det in detections %}
-<div class="bg-white rounded-xl shadow-sm mb-3 flex items-center p-3 gap-4">
+<div class="bg-white rounded-xl shadow-sm mb-3 flex items-center p-3 gap-4
+            {% if det.verified is defined and not det.verified %}opacity-60{% endif %}">
     <!-- Bird image -->
     <a href="https://en.wikipedia.org/wiki/{{ det.sci_name | replace(' ', '_') }}"
        target="_blank" rel="noopener" class="flex-shrink-0">
@@ -12,7 +13,10 @@
 
     <!-- Info -->
     <div class="flex-1 min-w-0">
-        <div class="font-semibold truncate">{{ det.common_name }}</div>
+        <div class="font-semibold truncate">{{ det.common_name }}{% if det.verified is defined and not det.verified %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs
+                         font-medium bg-amber-100 text-amber-700 ml-1"
+                  title="Unverified — awaiting confirmation">?</span>{% endif %}</div>
         <div class="text-xs text-stone-400 italic">{{ det.sci_name }}</div>
         <div class="text-xs text-stone-500">{{ det.timestamp | format_time }}</div>
         <!-- Confidence bar -->

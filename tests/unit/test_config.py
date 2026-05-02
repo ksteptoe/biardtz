@@ -125,3 +125,56 @@ class TestConfigCustomValues:
         cfg = Config(db_path="/tmp/test.db")
         assert isinstance(cfg.db_path, Path)
         assert cfg.db_path == Path("/tmp/test.db")
+
+
+class TestConfigVerification:
+    """Tests for verification / watchlist config fields."""
+
+    def test_default_watchlist_empty(self):
+        cfg = Config()
+        assert cfg.watchlist == ()
+
+    def test_default_watchlist_file_none(self):
+        cfg = Config()
+        assert cfg.watchlist_file is None
+
+    def test_default_auto_watchlist_threshold(self):
+        cfg = Config()
+        assert cfg.auto_watchlist_threshold == 0
+
+    def test_default_verify_min_detections(self):
+        cfg = Config()
+        assert cfg.verify_min_detections == 2
+
+    def test_default_verify_window_seconds(self):
+        cfg = Config()
+        assert cfg.verify_window_seconds == 300.0
+
+    def test_explicit_watchlist(self):
+        cfg = Config(watchlist=("Nightingale", "Golden Eagle"))
+        assert cfg.watchlist == ("Nightingale", "Golden Eagle")
+
+    def test_watchlist_file_loads_species(self, tmp_path):
+        wf = tmp_path / "watchlist.txt"
+        wf.write_text("Nightingale\nGolden Eagle\n# comment\n\n")
+        cfg = Config(watchlist_file=wf)
+        assert "Nightingale" in cfg.watchlist
+        assert "Golden Eagle" in cfg.watchlist
+
+    def test_watchlist_file_merges_with_explicit(self, tmp_path):
+        wf = tmp_path / "watchlist.txt"
+        wf.write_text("Golden Eagle\n")
+        cfg = Config(watchlist=("Nightingale",), watchlist_file=wf)
+        assert "Nightingale" in cfg.watchlist
+        assert "Golden Eagle" in cfg.watchlist
+
+    def test_watchlist_file_deduplicates(self, tmp_path):
+        wf = tmp_path / "watchlist.txt"
+        wf.write_text("Nightingale\n")
+        cfg = Config(watchlist=("Nightingale",), watchlist_file=wf)
+        assert cfg.watchlist.count("Nightingale") == 1
+
+    def test_watchlist_file_nonexistent_ignored(self, tmp_path):
+        wf = tmp_path / "nonexistent.txt"
+        cfg = Config(watchlist=("Robin",), watchlist_file=wf)
+        assert cfg.watchlist == ("Robin",)

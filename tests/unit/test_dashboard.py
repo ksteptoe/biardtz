@@ -16,10 +16,10 @@ class TestBuildTable:
         table = dash._build_table()
         assert isinstance(table, Table)
 
-    def test_table_has_five_columns(self):
+    def test_table_has_six_columns(self):
         dash = Dashboard()
         table = dash._build_table()
-        assert len(table.columns) == 5
+        assert len(table.columns) == 6
 
     def test_table_title_contains_stats(self):
         dash = Dashboard()
@@ -31,7 +31,7 @@ class TestBuildTable:
     def test_table_with_detections(self):
         dash = Dashboard()
         det = Detection("Robin", "Erithacus rubecula", 0.85)
-        dash._recent.append(("12:00:00", det))
+        dash._recent.append(("12:00:00", det, True))
         dash._total = 1
         dash._species.add("Robin")
 
@@ -48,11 +48,12 @@ class TestConfidenceColoring:
     def _get_conf_cell(confidence: float) -> Text:
         dash = Dashboard()
         det = Detection("Robin", "Erithacus rubecula", confidence)
-        dash._recent.append(("12:00:00", det))
+        dash._recent.append(("12:00:00", det, True))
         dash._total = 1
         table = dash._build_table()
         # Rich Table stores cell renderables in columns[col_idx]._cells
-        return table.columns[3]._cells[0]
+        # Columns: status(0), Time(1), Species(2), SciName(3), Confidence(4), Direction(5)
+        return table.columns[4]._cells[0]
 
     def test_high_confidence_green(self):
         cell = self._get_conf_cell(0.85)
